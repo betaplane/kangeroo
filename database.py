@@ -63,7 +63,10 @@ class DB(object):
         :rtype: :class:`~pandas.DataFrame` with :class:`~pandas.MultiIndex` of the same characteristics as those used by :class:`~darc.files.Log`
 
         """
+        print('concatenating {}'.format(self.field.loc[out_id]['name']))
         p = self.processing[(self.processing.output_id == out_id) & self.processing.use]
+        if p.empty:
+            raise Exception('The id is not associated to a concatenated field.')
         offset = {v.input_id: v.offset for k, v in p.iterrows()}
         source = {k: v.source for k, v in self.field.iterrows()}
         ids = p.input_id.tolist()
@@ -82,3 +85,8 @@ class DB(object):
             ('out', None, out_id, 0., 'data'), ('out', None, out_id, 0., 'flag')])
         out.columns.names = x.columns.names
         return pd.concat((out, x), 1).reindex(recs['x'][out_id].dropna().index)
+
+
+if __name__ == '__main__':
+    db = DB()
+    d = db.concat(211) # '4/1/WP'

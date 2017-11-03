@@ -1,3 +1,16 @@
+"""
+Usage Example
+=============
+.. code-block::
+
+    log = Log('data/4/1/')
+    long, short = Log.organize_time(log.level)
+    Log.plot(long)
+
+    c = Log.list(short)
+    Log.plot(c[3], cut_ends=True)
+
+"""
 import pandas as pd
 import numpy as np
 from glob import glob
@@ -144,14 +157,29 @@ class Log(object):
         short = d[l.isnull()].dropna(1)
         return df[long.columns], df[short.columns]
 
+    @staticmethod
+    def get_time_ranges(column):
+        """Return a list of ranges (start, stop) of the data that have been used in a concatenation, as reconstructed from one columns of a DataFrame of (1, 0) flags. The flag DataFrame can be obtained by a call to :meth:`load_flags`. The arguments needs to be a proper :class:`~pandas.DataFrame` - see use in :meth:`plot`.
+
+        """
+        out = {0: [np.nan, np.nan]}
+        col = column.dropna().sort_index()
+        d = col.diff()
+        starts = d[d==1].dropna().index
+        # the last valid timestamp is the one **before** the -1 diff location
+        stops = d.index[d.index.get_indexer(d[d==-1].dropna().index) - 1]
+        # end points of flag array become start / stop if their values are 1
+        c = col.iloc[[0, -1]]
+        end_points = c[c==1].dropna().index
+        a = np.array(starts.append(stops).append(end_points).sort_values()).reshape((-1, 2))
+        out.update({i: j for i, j in enumerate(a)})
+        return pd.Series(out)
+
     @classmethod
     def plot(cls, df, flags=None, right=0.8, flagged=True, cut_ends=False):
         fig, ax = plt.subplots()
         fig.subplots_adjust(right=right)
 
-        if cut_ends:
-            df, residuals = cls.cut_ends(df, resid=True)
-            bx = ax.twinx()
         data = df.xs('data', 1, 'data_flag')
         flags = df.xs('flag', 1, 'data_flag') if flags is None else flags
         flags = flags.apply(cls.get_time_ranges)
@@ -160,35 +188,67 @@ class Log(object):
 
         used_or_not = {True:[], False:[]}
         for i, name in enumerate(names):
-            p = ax.plot(data.xs(name, 1, 'filename'))[0]
-            if cut_ends:
-                bx.plot(residuals)
+            d = data.xs(name, 1, 'filename')
+            p = ax.plot(d)[0]
             u = False
             try:
                 spans = flags.xs(name, 1, 'filename')
                 for _, span in spans.iterrows():
-                    ax.axvspan(*span.item(), ymax=1-i/height, ymin=1-(1+i)/height, alpha=.4, facecolor=p.get_color())
+                    ax.axvspan(*span.item(), ymax=1-i/height, ymin=1-(1+i)/height,
+                               alpha=.4, facecolor=p.get_color())
                     u = True
             except:
                 pass
             used_or_not[u].append(Patch(color = p.get_color(), label=name))
 
-        if not cut_ends: # because you can't add an artist after the axis has been cloned with twinx()
-            ax.add_artist(
-                plt.legend(handles = used_or_not[False], loc='lower left', bbox_to_anchor=(1, 0), title='not used'))
+        ax.add_artist(
+            plt.legend(handles = used_or_not[False], loc='lower left', bbox_to_anchor=(1, 0), title='not used'))
         plt.legend(handles = used_or_not[True], bbox_to_anchor=(1, 1), title='used')
-        fig.show()
-        if flagged:
-            cls.plot_flagged(df, ax)
 
-    @staticmethod
-    def plot_flagged(df, ax=None):
+        fig.show()
+
+    @classmethod
+    def cut_ends(cls, df, std=3, lag=1, residuals=False):
+        d = df.dropna(0, 'all').swaplevel(0, 'data_flag', 1)
+        flags = d.xs('flag', 1, 'data_flag').copy()
+        x = d.xs('data', 1, 'data_flag')
+        t = np.array(x.index, dtype='datetime64')
+        r = ar_model.AR(x, t).fit(lag).resid
+        c = r.sort_values()[[0, -1]]
+        cut_points = c[c.abs() > std * r.std()]
+        if not cut_points.empty:
+            # the occurence of the residual spike is delayed by lag
+            idx = r.index.get_indexer(cut_points.sort_index().index) + lag
+            for i in idx:
+                if np.abs(d.shape[0] - i) < i:
+                    flags.iloc[i:, :] = 0
+                else:
+                    flags.iloc[:i, :] = 0
+            d = pd.concat((x, flags), 1, keys=['data', 'flag']).swaplevel(0, -1, 1)
+            d.columns.names = df.columns.names
+            df = d
+        return (df, r) if residuals else df
+
+    @classmethod
+    def plot_flagged(cls, df, ax=None, cut_ends=False, residuals=True, **kwargs):
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+        df = df.dropna(0, 'all')
+        if cut_ends:
+            df, resid = cls.cut_ends(df, residuals=True, **kwargs)
         data = df.xs('data', 1, 'data_flag')
         flags = df.xs('flag', 1, 'data_flag')
+
         (fig, ax) = plt.subplots() if ax is None else (ax.figure, ax)
-        i = (flags.isnull()) | (flags==0)
-        j = i.index.get_indexer(i[i].dropna().index)
-        ax.plot(data.iloc[j], 'or')
+        ax.plot(data, color=colors[0])
+        try:
+            ax.plot(data.loc[[i for j in cls.get_time_ranges(flags) for i in j]], 'og')
+            ax.plot(data[(flags.isnull()) | (flags==0)], 'or')
+        except:
+            pass
+        if residuals:
+            bx = ax.twinx()
+            bx.plot(resid, color=colors[1])
         fig.show()
 
     @staticmethod
@@ -207,24 +267,6 @@ class Log(object):
         with pd.HDFStore(filename) as S:
             file_names = S[variable].columns.get_level_values('filename').dropna()
         return {'directory': set(files) - set(file_names), 'HDF5': set(file_names) - set(files)}
-
-    @staticmethod
-    def get_time_ranges(column):
-        """Return a list of ranges (start, stop) of the data that have been used in a concatenation, as reconstructed from one columns of a DataFrame of (1, 0) flags. The flag DataFrame can be obtained by a call to :meth:`load_flags`. The arguments needs to be a proper :class:`~pandas.DataFrame` - see use in :meth:`plot`.
-
-        """
-        out = {0: [np.nan, np.nan]}
-        col = column.dropna().sort_index()
-        d = col.diff()
-        starts = d[d==1].dropna().index
-        # the last valid timestamp is the one **before** the -1 diff location
-        stops = d.index[d.index.get_indexer(d[d==-1].dropna().index) - 1]
-        # end points of flag array become start / stop if their values are 1
-        c = col.iloc[[0, -1]]
-        end_points = c[c==1].dropna().index
-        a = np.array(starts.append(stops).append(end_points).sort_values()).reshape((-1, 2))
-        out.update({i: j for i, j in enumerate(a)})
-        return pd.Series(out)
 
     @staticmethod
     def load_flags(filename, variable):
@@ -267,24 +309,6 @@ class Log(object):
         idx = flags.loc[0].apply(lambda c:c[0]).sort_values().index.get_level_values('filename')
         g = df.groupby(axis=1, level='filename')
         return [g.get_group(f) for f in idx]
-
-    @classmethod
-    def cut_ends(cls, df, resid=False, lag=1):
-        d = df.dropna(0, 'all').swaplevel(0, 'data_flag', 1)
-        flags = d.xs('flag', 1, 'data_flag').copy()
-        x = d.xs('data', 1, 'data_flag')
-        t = np.array(x.index, dtype='datetime64')
-        r = ar_model.AR(x, t).fit(lag).resid
-        # cut_points = r[r.abs() > 6 * r.std()].sort_index().index
-        cut_points = r.sort_values()[[0, -1]].sort_index().index
-        if not cut_points.empty:
-            idx = r.index.get_indexer(cut_points)
-            flags.iloc[:idx[0] + 1, :] = 0
-            flags.iloc[idx[1] + 1 :, :] = 0
-            d = pd.concat((x, flags), 1, keys=['data', 'flag']).swaplevel(0, -1, 1)
-            d.columns.names = df.columns.names
-            df = d
-        return (df, r) if resid else df
 
 
     def __init__(self, directory):

@@ -1,14 +1,16 @@
 """
 Usage Example
 =============
-.. code-block::
+.. code-block:: python
 
     log = Log('data/4/1/')
-    long, short = Log.organize_time(log.level)
-    Log.plot(long)
+    c = log.chain_gangs(log.var.data)
 
-    c = Log.list(short)
-    Log.plot(c[3], cut_ends=True)
+
+TODO
+====
+
+* in :meth:`chains`, make gap jump criterion the next (non-NaN) timestamp in the original dataframe instead the next starting value
 
 """
 import pandas as pd
@@ -19,10 +21,15 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from types import MethodType
 from statsmodels.tsa import ar_model
-import sklearn.cluster as cluster
+import tensorflow as tf
+# import sklearn.cluster as cluster
 import time
 
+
+# somehow sphinx doesn't see classes that inherit from 'mocked' imports - but the sphinx build also files if I don't mock pandas
 class DataFrame(pd.DataFrame):
+    """:class:`pandas.DataFrame` subclass with less verbose accessor methods to some columns of the hierarchical :class:`~pandas.MultiIndex`. """
+
     @property
     def _constructor(self):
         return DataFrame
@@ -35,11 +42,18 @@ class DataFrame(pd.DataFrame):
 
     @property
     def data(self):
+        "Return `data` columns of `data_flag` level."
         return self._data_flag('data', 'data_flag')
 
     @property
     def flag(self):
+        "Return `flag` columns of `data_flag` level."
         return self._data_flag('flag', 'data_flag')
+
+    def variable(self, pattern):
+        """Return all columns matching the given expression in the `variabls` level of the :class:`~pandas.MultiIndex` of the parsed :class:`~pandas.DataFrame`."""
+        return self.loc[:, self.columns.get_level_values('variable').str.contains(pattern, case=False)]
+
 
 
 class FileReadError(Exception):
@@ -48,6 +62,7 @@ class FileReadError(Exception):
         {} could not be read. Try saving this file with UTF-8 encoding.
         """.format(msg)
         super().__init__(msg, error)
+
 
 class Log(object):
     """Class which collects methods to read data logger (.csv) files. The class-level variables hold some information relevant to the parsing and processing of the files and can be adapted."""
@@ -106,7 +121,7 @@ class Log(object):
     def read(cls, filename):
         """Read a data logger .csv file and return a dictionary of DataFrames for individual columns of the file. Each DataFrame contains one column with the data and one column with a flag value (for subsequent use) which is set to 1 for each record. The :class:`~pandas.MultiIndex` has the levels:
             * *variable* - the variable name (from the logger file)
-            * *in_out* - whether this is raw data ('in') or concatenated ('out')
+            * *in_out* - whether this is raw data ('in') or concshortatenated ('out')
             * *filename* - the original filename (without extension) from which the data was read
             * *id* - probably just the id of the field in the old 'databarc' database, 0. for newer data
             * *offset* - any additive offset applied to the data when used in a concatenation (the data in the columns is left unchanged)
@@ -148,10 +163,6 @@ class Log(object):
         files = glob(os.path.join(directory, '*.csv'))
         return pd.concat([cls.read(f) for f in files], 1)
 
-    @staticmethod
-    def get_variable(df, pattern):
-        """Return all columns matching the given expression in the `variabls` level of the :class:`~pandas.MultiIndex` of the parsed :class:`~pandas.DataFrame`."""
-        return df.loc[:, df.columns.get_level_values('variable').str.contains(pattern, case=False)]
 
     @staticmethod
     def get_start_stop(col): # apply to axis 0
@@ -159,8 +170,8 @@ class Log(object):
         return pd.Series((x.index.min(), x.index.max()), index=['start', 'stop'])
 
     @classmethod
-    def organize_time(cls, df, length=100):
-        """Return a tuple of two DataFrames which partition the input DataFrame into long and short time series, as separated by a length thresold.
+    def organize_time(cls, df, length=100, get_indexers=True):
+        """Return a tuple of two DataFrames which partition the input DataFrame into long and short time series, as separated by a length threshold.
 
         :param df: DataFrame of raw record time series
         :type df: :class:`~pandas.DataFrame`
@@ -174,7 +185,10 @@ class Log(object):
         l = d[d > pd.Timedelta(length, 'D')]
         long = l.dropna(1)
         short = d[l.isnull()].dropna(1)
-        return df[long.columns], df[short.columns]
+        if get_indexers:
+            return df.columns.get_indexer(long.columns), df.columns.get_indexer(short.columns)
+        else:
+            return df[long.columns], df[short.columns]
 
     @staticmethod
     def get_time_ranges(column):
@@ -202,8 +216,10 @@ class Log(object):
         flags = df.xs('flag', 1, 'data_flag') if flags is None else flags
 
         # need to sort the series first by start time
-        flags = flags.apply(cls.get_time_ranges)
-        names = flags.loc[0].apply(lambda c:c[0]).sort_values().index.get_level_values('filename')
+        time_ranges = flags.apply(cls.get_time_ranges)
+        sorted_index = time_ranges.loc[0].apply(lambda c:c[0]).sort_values().index
+        names = sorted_index.get_level_values('filename')
+        indexer = time_ranges.columns.get_indexer(sorted_index)
         height = len(names)
 
         used_or_not = {True:[], False:[]}
@@ -213,14 +229,16 @@ class Log(object):
             p = cls.plot_flagged(d, ax, cut_ends=cut_ends, residuals=False)
             u = False
             try:
-                spans = flags.xs(name, 1, 'filename')
+                spans = time_ranges.xs(name, 1, 'filename')
                 for _, span in spans.iterrows():
-                    ax.axvspan(*span.item(), ymax=1-i/height, ymin=1-(1+i)/height,
-                               alpha=.4, facecolor=p.get_color())
+                    a, b = span.item()
+                    ymin = 1-(1+i)/height
+                    ax.axvspan(a, b, ymax=1-i/height, ymin=ymin, alpha=.4, facecolor=p.get_color())
+                    ax.annotate(indexer[i], xy=(b, ymin), xycoords=('data', 'axes fraction'), color=p.get_color())
                     u = True
             except:
                 pass
-            used_or_not[u].append(Patch(color = p.get_color(), label=name))
+            used_or_not[u].append(Patch(color = p.get_color(), label='{}: {}'.format(indexer[i], name)))
 
         ax.add_artist(
             plt.legend(handles = used_or_not[False], loc='lower left', bbox_to_anchor=(1, 0), title='not used'))
@@ -335,17 +353,11 @@ class Log(object):
         g = df.groupby(axis=1, level='filename')
         return [g.get_group(f) for f in idx]
 
-    def __init__(self, directory):
-        self.data = DataFrame(self.read_directory(directory))
-        self.temp = DataFrame(self.get_variable(self.data, 'temp'))
-        self.level = DataFrame(self.get_variable(self.data, 'level'))
-
-
     @classmethod
     def overlap(cls, s):
         """Returns symmetric matrix of which series overlap with each other:
             * a 1 entry means that the row/columns combo overlaps - the row/column indexes refer to the numeric index of a series in the original data.
-        * The `contained` :class:`DataFrame` has a 1 for series that are entirely contained in another one.
+            * The `contained` :class:`DataFrame` has a 1 for series that are entirely contained in another one.
 
         **Input**: a .data or .flag :class:`DataFrame` with :meth:`get_start_stop` applied to axis 0 (see :meth:`chains`).
 
@@ -378,28 +390,124 @@ class Log(object):
         # m1, m2 = m / duration, m / duration.T
         # return np.where(m1 > m2, m1, m2) - np.diag(np.ones(m.shape[0]))
 
-    @classmethod
-    def chains(cls, df):
-        """Attempt at a method that finds all permutations of combinations based on overlaps."""
-        s = df.apply(cls.get_start_stop)
-        overl, cont = cls.overlap(s)
-        idx = df.columns.get_indexer(s.loc['start'].sort_values().index)
+    def chains(self, df, overlap, contained, exclude_contained=True):
+        """Attempt at a method that finds all permutations of data series combinations based on overlaps. Returns a :class:`~numpy.array` where each row corresponds to a sequence of series indexes referring to the columns of the input :class:`DataFrame`. Also keeps track of gaps that needed to be jumped for each of the rows. (The routine is based on actual timestamps, so overlap and jumping gaps refers to actual time gaps.) See :meth:`chain_gangs` for example of invocation.
+        """
 
-        def stack(i):
-            n = list(set(np.where(overl[i[-1]])[0]) - set(i))
-            print(i, n)
+        idx = self.start_sorted
+        # will hold all the gaps that needed to be jumped because there is no overlap; keys are rows in the returned np.array
+        gaps = {}
+
+        def stack(k, row):
+            i = row[-1]
+
+            # this is the set of previous series that we will not allow the sequence to go back to - *unless* we are at a series entirely contained within another
+            if exclude_contained:
+                uturn = set(row).union(np.where(contained[:, i])[0]) # if we leave out all contained series, we remove them from the series we are jumping **to** (column index if we use row index otherwise)
+            else:
+                uturn = set(row) - set(np.where(contained[i, :])[0])
+
+            n = list(set(np.where(overlap[i])[0]) - uturn) if i >= 0 else []
+
+            # if there is a gap or we're at the end
             if len(n) == 0:
-                j = np.where(idx == i[-1])[0]
-                n = idx[j + 1]
-            return np.hstack((i.reshape((1, -1)).repeat(len(n), 0), np.array(n).reshape((-1, 1))))
+                j = np.where(idx == i)[0]
+                if j + 1 < len(idx):
+                    n = self.start_sorted[j + 1] # CHANGE THIS EVENTUALLY!!!!!!!!!
+                    if k in gaps:
+                        gaps[k].append((i, n.item()))
+                    else:
+                        gaps[k] = [(i, n.item())]
+                # if we're at the end
+                else:
+                    n = [-9]
+            return np.hstack((row.reshape((1, -1)).repeat(len(n), 0), np.array(n).reshape((-1, 1))))
 
         c = idx[0].reshape((1, 1))
-        for _ in range(len(idx)):
-            try:
-                c = np.vstack([stack(i) for i in c])
-            except:
-                break
+        stop = self.end_sorted[-1]
+        while not np.all([(stop in i) for i in c]):
+            c = np.vstack([stack(*i) for i in enumerate(c)])
+
+        print(gaps)
         return c
+
+    def gangs(self, df, chains, overlap):
+        """Takes the :meth:`chains` and creates a seperate sequence for every possible transition point between two adjacent series."""
+
+        transitions = []
+        for c in chains:
+            for i, s in enumerate(c[:-1]):
+                if c[i+1] >= 0:
+                    transitions.append((s, c[i+1]))
+
+        for t in set(transitions):
+            if overlap[t] != 0:
+                print(t)
+                start = self.end_points.ix['start', t[1]]
+                stop = self.end_points.ix['stop', t[0]]
+
+
+                first = df.ix[start:stop, t[0]]
+                second = df.ix[start:stop, t[1]]
+                fused = np.where(np.tri(first.shape[0]).T, first.values.reshape((-1, 1)), second.values.reshape((-1, 1)))
+                return DataFrame(fused, index=first.index)
+
+
+    def chain_gangs(self, df, chains_only=False):
+        """Chains together :meth:`chains` and :meth:`gangs`."""
+
+        # get overlaps and contained
+        overlap, contained = self.overlap(self.end_points)
+
+        chains = self.chains(df, overlap, contained)
+        return chains if chains_only else self.gangs(df, chains, overlap)
+
+    @staticmethod
+    def _optimization_setup():
+        gr = tf.Graph()
+        with gr.as_default():
+            x = tf.placeholder(tf.float32)
+            y = tf.placeholder(tf.float32)
+            lsq = tf.matrix_solve_ls(tf.reshape(x, (-1, 1)), tf.reshape(y, (-1, 1)))
+            loss = tf.reduce_mean((x * lsq) ** 2)
+        return gr, loss, x, y
+
+    @classmethod
+    def optimization(cls, df):
+        gr, resid, x, y = cls._optimization_setup()
+        feat = df.iloc[:-1].values
+        lab = df.iloc[1:]
+        with tf.Session(graph = gr) as S:
+            return S.run(resid, {x: feat, y: lab.values})
+
+
+    def __init__(self, directory=None, copy=None):
+        self.data = DataFrame(self.read_directory(directory)) if copy is None else copy.data
+        self.temp = self.data.variable('temp')
+        self.level = self.data.variable('level').drop('AK4_LL-203_temp_August20_2012', 1, 'filename')
+
+        # while testing only for self.level:
+        var = self.level.data
+        self.shape = var.shape
+        self.long_idx, self.short_idx = self.organize_time(var)
+        self.columns = var.columns[self.long_idx].append(var.columns[self.short_idx])
+
+        # only self.var is sorted correctly, i.e. in the same way as self.columns and self.tf_data
+        self.var = pd.concat([self.level.xs(n, 1, 'filename', False) for n in self.columns.get_level_values('filename')], 1)
+        self.end_points = self.var.data.apply(self.get_start_stop)
+
+        self.start_sorted = self.columns.get_indexer(self.end_points.loc['start'].sort_values().index)
+        self.end_sorted = self.columns.get_indexer(self.end_points.loc['stop'].sort_values().index)
+
+        self.graph = tf.Graph()
+        with self.graph.as_default():
+            self.offsets = tf.get_variable('offsets', self.short_idx.shape, self.tf_dtype)
+            data = tf.placeholder(self.tf_dtype, self.shape)
+            short = tf.gather(data, self.short_idx, axis=1) + self.offsets
+            self.tf_data = tf.concat((tf.gather(data, self.long_idx, axis=1), short), 1)
+
+
+    tf_dtype = tf.float32
 
 
 if __name__ == '__main__':

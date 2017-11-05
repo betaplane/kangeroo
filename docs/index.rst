@@ -10,11 +10,16 @@ Welcome to darc's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+Database
+========
 .. automodule:: darc.database
    :members:
 
+Log Files
+=========
 .. automodule:: darc.files
    :members:
+
 
 Indices and tables
 ==================

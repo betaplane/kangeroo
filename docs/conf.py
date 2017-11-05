@@ -43,7 +43,7 @@ class Mock(MagicMock):
     def __getattr__(cls, name):
         return MagicMock()
 
-autodoc_mock_imports = ['pandas', 'sqlalchemy']
+autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'tensorflow', 'statsmodels.tsa', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.patches']
 sys.modules.update((n, Mock()) for n in autodoc_mock_imports)
 
 
@@ -97,7 +97,7 @@ todo_include_todos = True
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'alabaster'
+html_theme = 'sphinx_rtd_theme'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -172,7 +172,7 @@ texinfo_documents = [
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/', None),
+    'python': ('https://docs.python.org/3', None),
     'pd': ('http://pandas.pydata.org/pandas-docs/stable/', None),
     'sqla': ('http://docs.sqlalchemy.org/en/latest/', None)
 }

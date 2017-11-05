@@ -22,6 +22,25 @@ from statsmodels.tsa import ar_model
 import sklearn.cluster as cluster
 import time
 
+class DataFrame(pd.DataFrame):
+    @property
+    def _constructor(self):
+        return DataFrame
+
+    def _data_flag(self, attr, level):
+        try:
+            return self.xs(attr, 1, level)
+        except KeyError:
+            return self
+
+    @property
+    def data(self):
+        return self._data_flag('data', 'data_flag')
+
+    @property
+    def flag(self):
+        return self._data_flag('flag', 'data_flag')
+
 
 class FileReadError(Exception):
     def __init__(self, msg, error):
@@ -125,7 +144,7 @@ class Log(object):
             raise Exception('problems with {}'.format(filename))
 
     @classmethod
-    def concat_directory(cls, directory):
+    def read_directory(cls, directory):
         files = glob(os.path.join(directory, '*.csv'))
         return pd.concat([cls.read(f) for f in files], 1)
 
@@ -180,16 +199,18 @@ class Log(object):
         fig, ax = plt.subplots()
         fig.subplots_adjust(right=right)
 
-        data = df.xs('data', 1, 'data_flag')
         flags = df.xs('flag', 1, 'data_flag') if flags is None else flags
+
+        # need to sort the series first by start time
         flags = flags.apply(cls.get_time_ranges)
         names = flags.loc[0].apply(lambda c:c[0]).sort_values().index.get_level_values('filename')
         height = len(names)
 
         used_or_not = {True:[], False:[]}
         for i, name in enumerate(names):
-            d = data.xs(name, 1, 'filename')
-            p = ax.plot(d)[0]
+            d = df.xs(name, 1, 'filename')
+            # p = ax.plot(d.xs('data', 1, 'data_flag'))[0]
+            p = cls.plot_flagged(d, ax, cut_ends=cut_ends, residuals=False)
             u = False
             try:
                 spans = flags.xs(name, 1, 'filename')
@@ -231,7 +252,8 @@ class Log(object):
 
     @classmethod
     def plot_flagged(cls, df, ax=None, cut_ends=False, residuals=True, **kwargs):
-        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        # colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        colors = [None]
 
         df = df.dropna(0, 'all')
         if cut_ends:
@@ -240,16 +262,19 @@ class Log(object):
         flags = df.xs('flag', 1, 'data_flag')
 
         (fig, ax) = plt.subplots() if ax is None else (ax.figure, ax)
-        ax.plot(data, color=colors[0])
+        p = ax.plot(data, color=colors[0])
+        ax.plot(data[(flags.isnull()) | (flags==0)], 'or')
         try:
             ax.plot(data.loc[[i for j in cls.get_time_ranges(flags) for i in j]], 'og')
-            ax.plot(data[(flags.isnull()) | (flags==0)], 'or')
         except:
             pass
         if residuals:
             bx = ax.twinx()
             bx.plot(resid, color=colors[1])
-        fig.show()
+        if ax is None:
+            fig.show()
+        else:
+            return p[0]
 
     @staticmethod
     def check_directory(filename, variable, base_path='.'):
@@ -310,11 +335,72 @@ class Log(object):
         g = df.groupby(axis=1, level='filename')
         return [g.get_group(f) for f in idx]
 
-
     def __init__(self, directory):
-        self.data = self.concat_directory(directory)
-        self.temp = self.get_variable(self.data, 'temp')
-        self.level = self.get_variable(self.data, 'level')
+        self.data = DataFrame(self.read_directory(directory))
+        self.temp = DataFrame(self.get_variable(self.data, 'temp'))
+        self.level = DataFrame(self.get_variable(self.data, 'level'))
+
+
+    @classmethod
+    def overlap(cls, s):
+        """Returns symmetric matrix of which series overlap with each other:
+            * a 1 entry means that the row/columns combo overlaps - the row/column indexes refer to the numeric index of a series in the original data.
+        * The `contained` :class:`DataFrame` has a 1 for series that are entirely contained in another one.
+
+        **Input**: a .data or .flag :class:`DataFrame` with :meth:`get_start_stop` applied to axis 0 (see :meth:`chains`).
+
+        """
+        # s = df.apply(cls.get_start_stop)
+        stop = s.loc['stop'].values.reshape((1, -1)).astype(float)
+        start = s.loc['start'].values.reshape((-1, 1)).astype(float)
+        m = (stop - start)
+        overlap = ((m > 0) & (m.T > 0)).astype(int) - np.diag(np.ones(m.shape[0]))
+        contained = (((stop - stop.T) > 0) & ((start - start.T) > 0)).astype(int)
+        return overlap, contained
+
+    @staticmethod
+    def overlap_fraction(s):
+        """
+        Returns a matrix of the fraction of a series' duration to the shorter of the two possible overlap distances (i.e. stop - start with both combinations of two series).
+            * **If an element is > 1**, its **row index** refers to the series which is **entirely contained** in the other series, while its **column index** refers to the series within which it is **contained**.
+
+        """
+        stop = s.loc['stop'].values.reshape((1, -1))
+        start = s.loc['start'].values.reshape((1, -1))
+        duration = stop - start
+        m = (stop - start.T)
+        m[m.astype(float) < 0] = np.datetime64('nat')
+        m = np.where(m < m.T, m, m.T)
+        return m / duration.T
+
+        # d = np.where(duration < duration.T, duration, duration.T)
+        # m = np.where(m < d, m, d)
+        # m1, m2 = m / duration, m / duration.T
+        # return np.where(m1 > m2, m1, m2) - np.diag(np.ones(m.shape[0]))
+
+    @classmethod
+    def chains(cls, df):
+        """Attempt at a method that finds all permutations of combinations based on overlaps."""
+        s = df.apply(cls.get_start_stop)
+        overl, cont = cls.overlap(s)
+        idx = df.columns.get_indexer(s.loc['start'].sort_values().index)
+
+        def stack(i):
+            n = list(set(np.where(overl[i[-1]])[0]) - set(i))
+            print(i, n)
+            if len(n) == 0:
+                j = np.where(idx == i[-1])[0]
+                n = idx[j + 1]
+            return np.hstack((i.reshape((1, -1)).repeat(len(n), 0), np.array(n).reshape((-1, 1))))
+
+        c = idx[0].reshape((1, 1))
+        for _ in range(len(idx)):
+            try:
+                c = np.vstack([stack(i) for i in c])
+            except:
+                break
+        return c
+
 
 if __name__ == '__main__':
     # l = Log('2/2/AT')

@@ -440,18 +440,34 @@ class Log(object):
                 if c[i+1] >= 0:
                     transitions.append((s, c[i+1]))
 
+        time_series, loss = self._optimization_setup()
+        sess = tf.Session(graph = self.graph)
+        with self.graph.as_default():
+            tf.global_variables_initializer().run(session = sess)
+
+        self.gangs = {}
         for t in set(transitions):
             if overlap[t] != 0:
-                print(t)
                 start = self.end_points.ix['start', t[1]]
                 stop = self.end_points.ix['stop', t[0]]
 
+                a, b = self.index.get_indexer([start, stop])
+                length = b - a + 1
+                print(t, start, stop, a, b)
 
-                first = df.ix[start:stop, t[0]]
-                second = df.ix[start:stop, t[1]]
-                fused = np.where(np.tri(first.shape[0]).T, first.values.reshape((-1, 1)), second.values.reshape((-1, 1)))
-                return DataFrame(fused, index=first.index)
+                with self.graph.as_default():
+                    first = tf.reshape(self.tf_data[a: b+1, t[0]], (-1, 1))
+                    second = tf.reshape(self.tf_data[a: b+1, t[1]], (-1, 1))
+                    up_tri = tf.matrix_band_part(tf.ones((length, length)), 0, -1)
 
+                    # self.gangs[t]
+                    fused = first * (1. - up_tri) + second * up_tri
+                    for r in range(fused.shape[0]):
+                        row_with_nans = tf.gather(fused, r, axis=0)
+                        row = tf.boolean_mask(row_with_nans, tf.is_finite(row_with_nans))
+                        tf.assign(time_series, row)
+                        print(sess.run(loss, {self.tf_data: df}))
+                    # return tf.Session(graph=self.graph).run(chain[t], {self.tf_data: df})
 
     def chain_gangs(self, df, chains_only=False):
         """Chains together :meth:`chains` and :meth:`gangs`."""
@@ -462,15 +478,14 @@ class Log(object):
         chains = self.chains(df, overlap, contained)
         return chains if chains_only else self.gangs(df, chains, overlap)
 
-    @staticmethod
-    def _optimization_setup():
-        gr = tf.Graph()
-        with gr.as_default():
-            x = tf.placeholder(tf.float32)
-            y = tf.placeholder(tf.float32)
-            lsq = tf.matrix_solve_ls(tf.reshape(x, (-1, 1)), tf.reshape(y, (-1, 1)))
-            loss = tf.reduce_mean((x * lsq) ** 2)
-        return gr, loss, x, y
+    def _optimization_setup(self):
+        with self.graph.as_default():
+            time_series = tf.get_variable('data', dtype = self.tf_dtype, validate_shape=False)
+            t0 = time_series[:-1]
+            t1 = time_series[1:]
+            lsq = tf.matrix_solve_ls(tf.reshape(t0, (-1, 1)), tf.reshape(t1, (-1, 1)))
+            loss = tf.losses.mean_squared_error((t0 * lsq), t1)
+        return time_series, loss
 
     @classmethod
     def optimization(cls, df):
@@ -490,18 +505,19 @@ class Log(object):
         var = self.level.data
         self.shape = var.shape
         self.long_idx, self.short_idx = self.organize_time(var)
-        self.columns = var.columns[self.long_idx].append(var.columns[self.short_idx])
 
         # only self.var is sorted correctly, i.e. in the same way as self.columns and self.tf_data
+        self.columns = var.columns[self.long_idx].append(var.columns[self.short_idx])
         self.var = pd.concat([self.level.xs(n, 1, 'filename', False) for n in self.columns.get_level_values('filename')], 1)
         self.end_points = self.var.data.apply(self.get_start_stop)
+        self.index = self.var.index
 
         self.start_sorted = self.columns.get_indexer(self.end_points.loc['start'].sort_values().index)
         self.end_sorted = self.columns.get_indexer(self.end_points.loc['stop'].sort_values().index)
 
         self.graph = tf.Graph()
         with self.graph.as_default():
-            self.offsets = tf.get_variable('offsets', self.short_idx.shape, self.tf_dtype)
+            self.offsets = tf.get_variable('offsets', self.short_idx.shape, self.tf_dtype, tf.zeros_initializer, trainable=False)
             data = tf.placeholder(self.tf_dtype, self.shape)
             short = tf.gather(data, self.short_idx, axis=1) + self.offsets
             self.tf_data = tf.concat((tf.gather(data, self.long_idx, axis=1), short), 1)

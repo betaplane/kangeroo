@@ -11,6 +11,9 @@ TODO
 ====
 
 * in :meth:`chains`, make gap jump criterion the next (non-NaN) timestamp in the original dataframe instead the next starting value
+* the :meth:`gangs` method:
+    * perhaps redo in terms of dynamic (inside tf) taking of pieces of overlapping time series which can be optimized over, either a hard break or a soft weighting
+    * complete time series needs to be included for the AR model, not only overlap (start - stop)
 
 """
 import pandas as pd
@@ -431,78 +434,64 @@ class Log(object):
         print(gaps)
         return c
 
-    def gangs(self, df, chains, overlap):
-        """Takes the :meth:`chains` and creates a seperate sequence for every possible transition point between two adjacent series."""
+    def gang(self, chain, overlap):
+        """Take one chain only for now."""
 
-        transitions = []
-        for c in chains:
-            for i, s in enumerate(c[:-1]):
-                if c[i+1] >= 0:
-                    transitions.append((s, c[i+1]))
+        def indexes(i):
+            start = self.end_points.ix['start', i]
+            stop = self.end_points.ix['stop', i]
+            return round(self.index.get_indexer([start, stop]).sum() / 2)
 
-        time_series, loss = self._optimization_setup()
-        sess = tf.Session(graph = self.graph)
+        # this shifts the start of one series over the stop of the previous one
+        end_points = self.end_points.ix[['start', 'stop'], chain].values.flatten()[1:-1]
+        idx = np.round(self.index.get_indexer(end_points).reshape((2, -1)).sum(0) / 2).astype(int)
+
         with self.graph.as_default():
-            tf.global_variables_initializer().run(session = sess)
+            k = tf.get_variable('cross_over', dtype=tf.int32, initializer=tf.cast(idx, tf.int32))
 
-        self.gangs = {}
-        for t in set(transitions):
-            if overlap[t] != 0:
-                start = self.end_points.ix['start', t[1]]
-                stop = self.end_points.ix['stop', t[0]]
+            x0 = self.tf_data[:k[0], chain[0]]
+            x = tf.boolean_mask(x0, tf.is_finite(x0))
 
-                a, b = self.index.get_indexer([start, stop])
-                length = b - a + 1
-                print(t, start, stop, a, b)
+            for i, c in enumerate(chain[1:-1]):
+                x1 = self.tf_data[k[i]: k[i+1], c]
+                x = tf.concat((x, tf.boolean_mask(x1, tf.is_finite(x1))), 0)
 
-                with self.graph.as_default():
-                    first = tf.reshape(self.tf_data[a: b+1, t[0]], (-1, 1))
-                    second = tf.reshape(self.tf_data[a: b+1, t[1]], (-1, 1))
-                    up_tri = tf.matrix_band_part(tf.ones((length, length)), 0, -1)
+            x0 = self.tf_data[k[-1]:, chain[-1]]
+            x = tf.concat((x, tf.boolean_mask(x0, tf.is_finite(x0))), 0)
 
-                    # self.gangs[t]
-                    fused = first * (1. - up_tri) + second * up_tri
-                    for r in range(fused.shape[0]):
-                        row_with_nans = tf.gather(fused, r, axis=0)
-                        row = tf.boolean_mask(row_with_nans, tf.is_finite(row_with_nans))
-                        tf.assign(time_series, row)
-                        print(sess.run(loss, {self.tf_data: df}))
-                    # return tf.Session(graph=self.graph).run(chain[t], {self.tf_data: df})
+            x0 = tf.reshape(x[:-1], (-1, 1))
+            x1 = tf.reshape(x[1:], (-1, 1))
+            lsq = tf.matrix_solve_ls(x0, x1)
+            y = x0 * lsq
+            return x0, y, lsq
 
-    def chain_gangs(self, df, chains_only=False):
+
+    def chain_gang(self, df, chains_only=False):
         """Chains together :meth:`chains` and :meth:`gangs`."""
 
         # get overlaps and contained
         overlap, contained = self.overlap(self.end_points)
 
         chains = self.chains(df, overlap, contained)
-        return chains if chains_only else self.gangs(df, chains, overlap)
+        return chains if chains_only else self.gang(chains[0], overlap)
 
-    def _optimization_setup(self):
+    def initialize(self):
+        sess = tf.Session(graph = self.graph)
         with self.graph.as_default():
-            time_series = tf.get_variable('data', dtype = self.tf_dtype, validate_shape=False)
-            t0 = time_series[:-1]
-            t1 = time_series[1:]
-            lsq = tf.matrix_solve_ls(tf.reshape(t0, (-1, 1)), tf.reshape(t1, (-1, 1)))
-            loss = tf.losses.mean_squared_error((t0 * lsq), t1)
-        return time_series, loss
-
-    @classmethod
-    def optimization(cls, df):
-        gr, resid, x, y = cls._optimization_setup()
-        feat = df.iloc[:-1].values
-        lab = df.iloc[1:]
-        with tf.Session(graph = gr) as S:
-            return S.run(resid, {x: feat, y: lab.values})
+            tf.global_variables_initializer().run(session = sess)
+        return sess
 
 
     def __init__(self, directory=None, copy=None):
+        """With argument `copy=Log` where `Log` is an older :class:`Log` instance, the data is copied over, for use during development (reload and re-init without needing to load from the whole directory)."""
         self.data = DataFrame(self.read_directory(directory)) if copy is None else copy.data
         self.temp = self.data.variable('temp')
-        self.level = self.data.variable('level').drop('AK4_LL-203_temp_August20_2012', 1, 'filename')
 
-        # while testing only for self.level:
-        var = self.level.data
+        # this removes the outlying data series for now (although we might want to use it in the end)
+        self.level = self.data.variable('level').drop('AK4_LL-203_temp_August20_2012', 1, 'filename')
+        self.tf_init(self.level.data) # while testing only for self.level:
+
+    def tf_init(self, var):
         self.shape = var.shape
         self.long_idx, self.short_idx = self.organize_time(var)
 
@@ -518,7 +507,8 @@ class Log(object):
         self.graph = tf.Graph()
         with self.graph.as_default():
             self.offsets = tf.get_variable('offsets', self.short_idx.shape, self.tf_dtype, tf.zeros_initializer, trainable=False)
-            data = tf.placeholder(self.tf_dtype, self.shape)
+            # data = tf.placeholder(self.tf_dtype, self.shape)
+            data = tf.constant(var.values, self.tf_dtype)
             short = tf.gather(data, self.short_idx, axis=1) + self.offsets
             self.tf_data = tf.concat((tf.gather(data, self.long_idx, axis=1), short), 1)
 

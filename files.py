@@ -393,7 +393,7 @@ class Log(object):
         # m1, m2 = m / duration, m / duration.T
         # return np.where(m1 > m2, m1, m2) - np.diag(np.ones(m.shape[0]))
 
-    def chains(self, df, overlap, contained, exclude_contained=True):
+    def chains(self, overlap, contained, exclude_contained=True):
         """Attempt at a method that finds all permutations of data series combinations based on overlaps. Returns a :class:`~numpy.array` where each row corresponds to a sequence of series indexes referring to the columns of the input :class:`DataFrame`. Also keeps track of gaps that needed to be jumped for each of the rows. (The routine is based on actual timestamps, so overlap and jumping gaps refers to actual time gaps.) See :meth:`chain_gangs` for example of invocation.
         """
 
@@ -434,17 +434,45 @@ class Log(object):
         print(gaps)
         return c
 
-    def gang(self, chain, overlap):
-        """Take one chain only for now."""
+    def softmax(self, chain, overlap, s=1.):
+        t = np.array(self.index, dtype='datetime64[s]', ndmin=2).astype(np.float32).T
+        end_points = self.end_points.ix[['start', 'stop'], chain].values.astype('datetime64[s]')
 
-        def indexes(i):
-            start = self.end_points.ix['start', i]
-            stop = self.end_points.ix['stop', i]
-            return round(self.index.get_indexer([start, stop]).sum() / 2)
+        # this shifts the start of one series over the stop of the previous one
+        cross = end_points.flatten()[1:-1].reshape((2, -1))
+        # this finds the mid point of either the transition or the gap (if there's no overlap)
+        cross = (cross[0, :] + np.diff(cross, 1, 0) / 2).astype(float)
+
+        # with self.graph.as_default():
+        self.cross = tf.get_variable('cross', dtype=self.tf_dtype, initializer=tf.cast(cross, self.tf_dtype))
+
+        # this is the inflexion point halfway between the transition mid-points
+        flex = self.cross[:, :-1] + (self.cross[:, 1:] - self.cross[:, :-1]) / 2
+
+        # now I pad the ends appropriately
+        cr = tf.concat(([[0.]], self.cross), 1)
+        fl = tf.concat((cr[:, 1:2] / 2, flex), 1)
+
+        x = tf.concat((fl - cr[:, :-1] - np.abs(t - fl), t - cr[:, -1:]), 1)
+        self.weights = tf.nn.softmax(s * x, 1)
+        concat = self.weights * tf.gather(self.tf_data, chain, axis=1)
+        self.concat = tf.reduce_sum(concat, 1)
+
+        x0 = tf.reshape(self.concat[:-1], (-1, 1))
+        x1 = tf.reshape(self.concat[1:], (-1, 1))
+        lsq = tf.matrix_solve_ls(x0, x1)
+        y = x0 * lsq
+        loss = tf.losses.mean_squared_error(x1, x0 * lsq)
+        return loss
+
+
+    def loss(self, chain, overlap):
+        """Take one chain only for now."""
 
         # this shifts the start of one series over the stop of the previous one
         end_points = self.end_points.ix[['start', 'stop'], chain].values.flatten()[1:-1]
         idx = np.round(self.index.get_indexer(end_points).reshape((2, -1)).sum(0) / 2).astype(int)
+        return idx
 
         with self.graph.as_default():
             k = tf.get_variable('cross_over', dtype=tf.int32, initializer=tf.cast(idx, tf.int32))
@@ -463,19 +491,32 @@ class Log(object):
             x1 = tf.reshape(x[1:], (-1, 1))
             lsq = tf.matrix_solve_ls(x0, x1)
             y = x0 * lsq
-            return x0, y, lsq
+            return tf.losses.mean_squared_error(x1, x0 * lsq), k
 
 
-    def chain_gang(self, df, chains_only=False):
-        """Chains together :meth:`chains` and :meth:`gangs`."""
-
+    def optimize(self, learn=0.01, steps=500, chains_only=False):
         # get overlaps and contained
         overlap, contained = self.overlap(self.end_points)
 
-        chains = self.chains(df, overlap, contained)
-        return chains if chains_only else self.gang(chains[0], overlap)
+        chains = self.chains(overlap, contained)
+        if chains_only:
+            return chains
+
+        with self.graph.as_default():
+            # loss, cross_over = self.loss(chains[0], overlap)
+            loss = self.softmax(chains[0], overlap)
+            opt = tf.train.GradientDescentOptimizer(learn).minimize(loss)
+
+        prog = tf.keras.utils.Progbar(steps)
+        with tf.Session(graph=self.graph) as s:
+            tf.global_variables_initializer().run(session=s)
+            for i in range(steps):
+                out = s.run([opt, loss])
+                prog.update(i)
+            return s.run([self.offsets, self.cross])
 
     def initialize(self):
+        """For debugging / development. Initializes TensorFlow_ variables and returns session."""
         sess = tf.Session(graph = self.graph)
         with self.graph.as_default():
             tf.global_variables_initializer().run(session = sess)
@@ -492,12 +533,18 @@ class Log(object):
         self.tf_init(self.level.data) # while testing only for self.level:
 
     def tf_init(self, var):
+        var = var.resample('30T').asfreq()
+
         self.shape = var.shape
         self.long_idx, self.short_idx = self.organize_time(var)
 
         # only self.var is sorted correctly, i.e. in the same way as self.columns and self.tf_data
-        self.columns = var.columns[self.long_idx].append(var.columns[self.short_idx])
-        self.var = pd.concat([self.level.xs(n, 1, 'filename', False) for n in self.columns.get_level_values('filename')], 1)
+        self.var = var.iloc[:, np.r_[self.long_idx, self.short_idx]]
+        self.columns = self.var.columns
+
+        # self.columns = var.columns[self.long_idx].append(var.columns[self.short_idx])
+        # self.var = pd.concat([self.level.xs(n, 1, 'filename', False) for n in self.columns.get_level_values('filename')], 1)
+
         self.end_points = self.var.data.apply(self.get_start_stop)
         self.index = self.var.index
 
@@ -506,9 +553,10 @@ class Log(object):
 
         self.graph = tf.Graph()
         with self.graph.as_default():
-            self.offsets = tf.get_variable('offsets', self.short_idx.shape, self.tf_dtype, tf.zeros_initializer, trainable=False)
+            self.offsets = tf.get_variable('offsets', self.short_idx.shape, self.tf_dtype,
+                                           tf.random_normal_initializer(mean=0, stddev=20))
             # data = tf.placeholder(self.tf_dtype, self.shape)
-            data = tf.constant(var.values, self.tf_dtype)
+            data = tf.constant(var.fillna(0).values, self.tf_dtype)
             short = tf.gather(data, self.short_idx, axis=1) + self.offsets
             self.tf_data = tf.concat((tf.gather(data, self.long_idx, axis=1), short), 1)
 

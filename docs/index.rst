@@ -21,6 +21,8 @@ Log Files
    :members:
 
 
+.. _TensorFlow: https://www.tensorflow.org/api_docs/
+
 Indices and tables
 ==================
 

@@ -1,3 +1,8 @@
+"""
+The methods of the :class:`Plots` class are accessible from :class:`~.LogFrame` instances via the :class:`~.LogFrame.plot` accessor.
+
+"""
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import numpy as np
@@ -64,7 +69,7 @@ class Plots(object):
         for i, name in enumerate(names):
             d = self.df.xs(name, 1, 'filename')
             # p = ax.plot(d.xs('data', 1, 'data_flag'))[0]
-            p = self.plot_flagged(d, ax, cut_ends=cut_ends, residuals=False)
+            p = self.flagged(d, ax, cut_ends=cut_ends, residuals=False)
             u = False
             try:
                 spans = time_ranges.xs(name, 1, 'filename')
@@ -86,7 +91,7 @@ class Plots(object):
 
 
     @staticmethod
-    def plot_flagged(df, ax=None, cut_ends=False, residuals=True, **kwargs):
+    def flagged(df, ax=None, cut_ends=False, residuals=True, **kwargs):
         # colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
         colors = [None]
 
@@ -110,3 +115,32 @@ class Plots(object):
             fig.show()
         else:
             return p[0]
+
+
+def concat(optimizer):
+    fig, ax = plt.subplots()
+    plt.plot(optimizer.var.index, optimizer.concat.eval(session=optimizer.sess))
+
+    short_idx = optimizer.var.columns.droplevel(0).get_indexer(optimizer.var.short.columns)
+
+    # NOTE: weights are in 'chain' order, whereas 'var.short' is in the order returned from :meth:`.LogFrame.organize_time`
+    weights = optimizer.weights.eval(session=optimizer.sess)[:, np.argsort(optimizer.chain)][:, short_idx]
+
+    short = optimizer.var.short
+    fn = short.columns.names.index('filename')
+    height = short.shape[1]
+
+    for i, s in enumerate(short.iteritems()):
+        x = s[1].dropna()
+        start_t = x.index[0]
+        p = plt.plot(x)[0]
+
+        idx = optimizer.var.index[weights[:, i].astype(bool)]
+        ax.axvspan(idx.min(), idx.max(), alpha=.4, facecolor=p.get_color())
+
+        ax.annotate(s[0][fn], xy=(start_t, 1 - (1 + i) / height),
+                    xycoords=('data', 'axes fraction'), color=p.get_color())
+
+    bx = ax.twinx()
+    bx.plot(optimizer.var.index[1:], optimizer.resid.eval(session=optimizer.sess), color='grey', alpha=.5)
+    fig.show()

@@ -3,7 +3,7 @@ import numpy as np
 from warnings import warn
 from glob import glob
 import os, re
-from plot import Plots, get_time_ranges
+from .plot import Plots, get_time_ranges
 
 
 class FileReadError(Exception):
@@ -15,7 +15,7 @@ class FileReadError(Exception):
 
 
 # somehow sphinx doesn't see classes that inherit from 'mocked' imports - but the sphinx build failes if I don't mock pandas
-
+# solution from here: https://stackoverflow.com/questions/29992444/sphinx-autodoc-skips-classes-inherited-from-mock
 class LogFrame(pd.DataFrame):
     """:class:`pandas.DataFrame` subclass with less verbose accessor methods to some columns of the hierarchical :class:`~pandas.MultiIndex`. """
 
@@ -27,7 +27,7 @@ class LogFrame(pd.DataFrame):
     def _constructor(self):
         return LogFrame
 
-    def _data_flag(self, attr, level):
+    def _level(self, attr, level):
         try:
             return self.xs(attr, 1, level)
         except KeyError:
@@ -37,12 +37,12 @@ class LogFrame(pd.DataFrame):
     @property
     def data(self):
         "Return `data` columns of `data_flag` level."
-        return self._data_flag('data', 'data_flag')
+        return self._level('data', 'data_flag')
 
     @property
     def flag(self):
         "Return `flag` columns of `data_flag` level."
-        return self._data_flag('flag', 'data_flag')
+        return self._level('flag', 'data_flag')
 
     def variable(self, pattern):
         """Return all columns matching the given expression in the `variable` level of the :class:`~pandas.MultiIndex` of the parsed :class:`LogFrame`."""
@@ -64,13 +64,13 @@ class LogFrame(pd.DataFrame):
         return self.flag.apply(get_time_ranges)
 
 
-    def organize_time(self, length=100, get_indexers=True):
+    def organize_time(self, length=100, indexers=False):
         """Split the LogFrame into two according to the length of the Series. Return either the column indexes for the long and short series, or a LogFrame with an added column level `length` with ``long`` and ``short`` labels.
 
         :param length: Threshold which divides long from short time series (in days).
-        :param get_indexers: If ``True``, return only indexers, otherwise return LogFrame with added hierarchical column level.
-        :type get_indexers: :obj:`bool`
-        :returns: tuple of (long, short) indexers or
+        :param indexers: If ``True``, return only indexers, otherwise return LogFrame with added hierarchical column level.
+        :type indexers: :obj:`bool`
+        :returns: tuple of (long, short) indexers or LogFrame with top column level labels ``long`` and ``short``
         :rtype: :obj:`tuple` of :class:`numpy.ndarray` or :class:`LogFrame`
 
         """
@@ -79,7 +79,7 @@ class LogFrame(pd.DataFrame):
         l = d[d > pd.Timedelta(length, 'D')]
         long = l.dropna(1)
         short = d[l.isnull()].dropna(1)
-        if get_indexers:
+        if indexers:
             return self.columns.get_indexer(long.columns), self.columns.get_indexer(short.columns)
         else:
             return pd.concat((self[long.columns], self[short.columns]), 1, keys=['long', 'short'])

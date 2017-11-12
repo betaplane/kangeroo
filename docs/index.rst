@@ -11,13 +11,23 @@ Welcome to darc's documentation!
    :caption: Contents:
 
 Database
-========
+--------
 .. automodule:: darc.database
    :members:
 
-Log Files
-=========
-.. automodule:: darc.files
+Reading Log Files
+-----------------
+.. automodule:: darc.core
+   :members:
+
+Concatenation
+-------------
+.. automodule:: darc.optimize
+   :members:
+
+Plotting
+--------
+.. automodule:: darc.plot
    :members:
 
 

@@ -44,7 +44,7 @@ class Mock(MagicMock):
         return MagicMock()
 
 autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'tensorflow', 'statsmodels.tsa', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.patches']
-sys.modules.update((n, Mock()) for n in autodoc_mock_imports)
+sys.modules.update((n, Mock) for n in autodoc_mock_imports)
 
 
 # Add any paths that contain templates here, relative to this directory.

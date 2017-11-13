@@ -15,8 +15,11 @@ TODO
 * test learning rate etc.
 * maybe map the 'chain' order more directly to columns instead of ints
 * allow continuing of training ops
+    * sort out global step mess
 * write a separate summary for each transition / offset
 * clip loss function to just the overlap areas (*not* the AR model)
+* deal with transitions without / with too short overlaps (unclipped outliers affect outcome)
+* use overlap_fraction and check .contained computation
 
 """
 import pandas as pd
@@ -35,7 +38,10 @@ class Optimizer(Reader):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        var = self.level.data  # while testing only for self.level
+
+        # while testing only for self.level
+        # this removes the outlying data series for now (although we might want to use it in the end)
+        var = self.level.data.drop('AK4_LL-203_temp_August20_2012', 1, 'filename')
 
         # only self.var is sorted correctly, i.e. in the same way as self.columns and self.tf_data
         self.var = var.resample('30T').asfreq().organize_time()
@@ -69,31 +75,27 @@ class Optimizer(Reader):
         self.overlap = ((m > 0) & (m.T > 0)).astype(int) - np.diag(np.ones(m.shape[0]))
         self.contained = (((stop - stop.T) > 0) & ((start - start.T) > 0)).astype(int)
 
-    @staticmethod
-    def overlap_fraction(s):
+    def overlap_fraction(self):
         """
         Returns a matrix of the fraction of a series' duration to the shorter of the two possible overlap distances (i.e. stop - start with both combinations of two series).
             * **If an element is > 1**, its **row index** refers to the series which is **entirely contained** in the other series, while its **column index** refers to the series within which it is **contained**.
 
         """
-        stop = s.loc['stop'].values.reshape((1, -1))
-        start = s.loc['start'].values.reshape((1, -1))
-        duration = stop - start
-        m = (stop - start.T)
-        m[m.astype(float) < 0] = np.datetime64('nat')
-        m = np.where(m < m.T, m, m.T)
-        return m / duration.T
+        stop = self.end_points.loc['stop'].values.reshape((1, -1))
+        start = self.end_points.loc['start'].values.reshape((1, -1))
+        duration = (stop - start).astype('datetime64[s]').astype(float)
+        m = (stop - start.T).astype('datetime64[s]').astype(float)
+        overlap = np.where(m < m.T, m, m.T) # > 0 denotes actual overlap, < 0 gap.
+        self.overlap = m * m.T
+        self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
 
-        # d = np.where(duration < duration.T, duration, duration.T)
-        # m = np.where(m < d, m, d)
-        # m1, m2 = m / duration, m / duration.T
-        # return np.where(m1 > m2, m1, m2) - np.diag(np.ones(m.shape[0]))
 
     def chains(self, exclude_contained=True):
         """Attempt at a method that finds all permutations of data series combinations based on overlaps. Returns a :class:`~numpy.array` where each row corresponds to a sequence of series indexes referring to the columns of the input :class:`DataFrame`. Also keeps track of gaps that needed to be jumped for each of the rows. (The routine is based on actual timestamps, so overlap and jumping gaps refers to actual time gaps.) See :meth:`chain_gangs` for example of invocation.
         """
         if not hasattr(self, 'overlap'):
-            self.overlap_and_contained()
+            # self.overlap_and_contained()
+            self.overlap_fraction()
 
         idx = self.start_sorted
         # will hold all the gaps that needed to be jumped because there is no overlap; keys are rows in the returned np.array
@@ -103,12 +105,13 @@ class Optimizer(Reader):
             i = row[-1]
 
             # this is the set of previous series that we will not allow the sequence to go back to - *unless* we are at a series entirely contained within another
-            if exclude_contained:
-                uturn = set(row).union(np.where(self.contained[:, i])[0]) # if we leave out all contained series, we remove them from the series we are jumping **to** (column index if we use row index otherwise)
-            else:
-                uturn = set(row) - set(np.where(self.contained[i, :])[0])
+            # if exclude_contained:
+            #     uturn = set(row).union(np.where(self.contained[:, i])[0]) # if we leave out all contained series, we remove them from the series we are jumping **to** (column index if we use row index otherwise)
+            # else:
+            #     uturn = set(row) - set(np.where(self.contained[i, :])[0])
 
-            n = list(set(np.where(self.overlap[i])[0]) - uturn) if i >= 0 else []
+            uturn = set(row)
+            n = list(set(np.where(self.overlap[i] > 0)[0]) - uturn) if i >= 0 else []
 
             # if there is a gap or we're at the end
             if len(n) == 0:
@@ -133,7 +136,7 @@ class Optimizer(Reader):
         print(gaps)
         return c
 
-    def softmax(self, chain, s=1.):
+    def _softmax(self, chain, s=1.):
         t = np.array(self.var.index, dtype='datetime64[s]', ndmin=2).astype(np.float32).T
         end_points = self.end_points.ix[['start', 'stop'], chain].values.astype('datetime64[s]')
 
@@ -146,7 +149,7 @@ class Optimizer(Reader):
         init = tf.cast(self.mid_overlaps, self.tf_dtype)
 
         # with self.graph.as_default():
-        self.cross = tf.get_variable('cross', dtype=self.tf_dtype, initializer=init)
+        self.cross = tf.get_variable('cross', dtype=self.tf_dtype, initializer=init, trainable=False)
         self.cross_limit = tf.clip_by_value(self.cross,
                                             tf.cast(cross[0, :], self.tf_dtype), tf.cast(cross[1, :], self.tf_dtype))
 
@@ -173,15 +176,15 @@ class Optimizer(Reader):
         self.resid = x0 * lsq - x1
         return tf.reduce_sum(self.resid ** 2)
 
-    def optimize(self, learn=0.01, steps=500, logdir=None):
+    def setup(self, learn=0.01, logdir=None):
         chains = self.chains()
         self.chain = chains[0] # we use only one chain for now
 
         with self.graph.as_default():
-            loss = self.softmax(self.chain)
-            opt = tf.train.GradientDescentOptimizer(learn).minimize(loss)
+            loss = self._softmax(self.chain)
+            self.step = tf.get_variable('global_step', initializer=0, trainable=False)
+            train_op = tf.train.GradientDescentOptimizer(learn).minimize(loss, global_step=self.step)
 
-            prog = tf.keras.utils.Progbar(steps)
             self.sess = tf.Session(graph=self.graph)
 
             tf.global_variables_initializer().run(session=self.sess)
@@ -196,21 +199,27 @@ class Optimizer(Reader):
                 tf.summary.histogram('transitions', self.cross - self.mid_overlaps)
                 summary = tf.summary.merge_all()
 
-                for i in range(steps):
-                    _, l, s, _  = self.sess.run([opt, loss, summary, self.cross_limit])
-                    self.tb_writer.add_summary(s, global_step=i)
-                    prog.update(i, [('Loss', l)])
+                def update():
+                    _, l, s, step = self.sess.run([train_op, loss, summary, self.step])
+                    self.tb_writer.add_summary(s, step)
+                    return l
 
             else:
-                for i in range(steps):
-                    _, l  = self.sess.run([opt, loss])
-                    prog.update(i, {'Loss': l})
+                def update():
+                    return self.sess.run([train_op, loss])
 
-            self.tb_writer.close() # IMPORTANT! will not work without .close() or .flush()
+        self._update = update
 
-    def initialize(self):
-        """For debugging / development. Initializes TensorFlow_ variables and returns session."""
-        sess = tf.Session(graph = self.graph)
-        with self.graph.as_default():
-            tf.global_variables_initializer().run(session = sess)
-        return sess
+
+    def update(self, steps):
+        prog = tf.keras.utils.Progbar(steps)
+        for i in range(steps):
+            l = self._update()
+            prog.update(i, [('Loss', l)])
+
+        if hasattr(self, 'tb_writer'):
+            self.tb_writer.flush() # IMPORTANT! will not work without .close() or .flush()
+
+    def __del__(self):
+        if hasattr(self, 'tb_writer'):
+            self.tb_writer.close()

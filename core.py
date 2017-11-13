@@ -29,7 +29,7 @@ class LogFrame(pd.DataFrame):
 
     def _level(self, attr, level):
         try:
-            return self.xs(attr, 1, level)
+            return self.xs(attr, 1, level, False)
         except KeyError:
             warn("LogFrame does not have a '{}' attributes - original frame returned.".format(attr))
             return self
@@ -61,7 +61,10 @@ class LogFrame(pd.DataFrame):
         """Return a list of ranges (start, stop) of the data that have been used in a concatenation, as reconstructed from one columns of a LogFrame of (1, 0) flags. The flag LogFrame can be obtained by a call to :meth:`load_flags`. The arguments needs to be a proper :class:`~pandas.DataFrame` / :class:`LogFrame` (as opposed to a :class:`~pandas.Series`) - see use in :meth:`plot`.
 
         """
-        return self.flag.apply(get_time_ranges)
+        if self.flag.columns.get_level_values('data_flag').unique().item() == 'flag':
+            return self.flag.apply(get_time_ranges)
+        else:
+            return self.isnull().replace({False: 1, True: 0}).apply(get_time_ranges)
 
 
     def organize_time(self, length=100, indexers=False):
@@ -113,9 +116,7 @@ class Reader(object):
             self.data = copy.data
 
         self.temp = self.data.variable('temp')
-
-        # this removes the outlying data series for now (although we might want to use it in the end)
-        self.level = self.data.variable('level').drop('AK4_LL-203_temp_August20_2012', 1, 'filename')
+        self.level = self.data.variable('level')
 
     @staticmethod
     def _skip(filename):

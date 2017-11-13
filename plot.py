@@ -68,7 +68,6 @@ class Plots(object):
         used_or_not = {True:[], False:[]}
         for i, name in enumerate(names):
             d = self.df.xs(name, 1, 'filename')
-            # p = ax.plot(d.xs('data', 1, 'data_flag'))[0]
             p = self.flagged(d, ax, cut_ends=cut_ends, residuals=False)
             u = False
             try:
@@ -99,12 +98,12 @@ class Plots(object):
         if cut_ends:
             df, resid = cut_ends(df, residuals=True, **kwargs)
         data = df.xs('data', 1, 'data_flag')
-        flags = df.xs('flag', 1, 'data_flag')
 
         (fig, ax) = plt.subplots() if ax is None else (ax.figure, ax)
         p = ax.plot(data, color=colors[0])
-        ax.plot(data[(flags.isnull()) | (flags==0)], 'or')
         try:
+            flags = df.xs('flag', 1, 'data_flag')
+            ax.plot(data[(flags.isnull()) | (flags==0)], 'or')
             ax.plot(data.loc[[i for j in get_time_ranges(flags) for i in j]], 'og')
         except:
             pass

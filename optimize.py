@@ -12,14 +12,12 @@ TODO
 ====
 
 * in :meth:`chains`, make gap jump criterion the next (non-NaN) timestamp in the original dataframe instead the next starting value
+    * clean up new overlap_fraction / contained check
 * test learning rate etc.
 * maybe map the 'chain' order more directly to columns instead of ints
-* allow continuing of training ops
-    * sort out global step mess
 * write a separate summary for each transition / offset
-* clip loss function to just the overlap areas (*not* the AR model)
 * deal with transitions without / with too short overlaps (unclipped outliers affect outcome)
-* use overlap_fraction and check .contained computation
+* make plot.all / flagged more robust w.r.t. time_ranges when .data only is passed
 
 """
 import pandas as pd

@@ -134,6 +134,24 @@ class Optimizer(Reader):
         print(gaps)
         return c
 
+    def parabola(self):
+        a, b = self.end_points.values.astype('datetime64[s]').astype(float)
+        self.start = tf.get_variable('start', dtype=self.tf_dtype, initializer=tf.cast(a, self.tf_dtype))
+        self.stop = tf.get_variable('stop', dtype=self.tf_dtype, initializer=tf.cast(b, self.tf_dtype))
+        t = tf.cast(np.array(self.var.index, dtype='datetime64[s]', ndmin=2).T.astype(float), self.tf_dtype, name='time')
+        weights = (t - self.start) * (t - self.stop) / (self.start - self.stop)
+        self.weights = tf.nn.softmax(weights)
+        self.concat = tf.reduce_sum(self.weights * self.tf_data, 1)
+
+        x0 = tf.reshape(self.concat[:-1], (-1, 1))
+        x1 = tf.reshape(self.concat[1:], (-1, 1))
+        lsq = tf.matrix_solve_ls(x0, x1)
+        y = x0 * lsq
+        self.resid = x0 * lsq - x1
+        ar_loss = tf.reduce_sum((self.resid * tf.reduce_sum(self.weights[1:, :], 1, keep_dims=True)) ** 2)
+        return ar_loss
+
+
     def _softmax(self, chain, s=1.):
         t = np.array(self.var.index, dtype='datetime64[s]', ndmin=2).astype(np.float32).T
         end_points = self.end_points.ix[['start', 'stop'], chain].values.astype('datetime64[s]')
@@ -179,7 +197,8 @@ class Optimizer(Reader):
         self.chain = chains[0] # we use only one chain for now
 
         with self.graph.as_default():
-            loss = self._softmax(self.chain)
+            # loss = self._softmax(self.chain)
+            loss = self.parabola()
             self.step = tf.get_variable('global_step', initializer=0, trainable=False)
             train_op = tf.train.GradientDescentOptimizer(learn).minimize(loss, global_step=self.step)
 
@@ -194,7 +213,7 @@ class Optimizer(Reader):
 
                 tf.summary.scalar('loss', loss)
                 tf.summary.histogram('offsets', self.offsets)
-                tf.summary.histogram('transitions', self.cross - self.mid_overlaps)
+                # tf.summary.histogram('transitions', self.cross - self.mid_overlaps)
                 summary = tf.summary.merge_all()
 
                 def update():

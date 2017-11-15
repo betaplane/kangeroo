@@ -123,7 +123,8 @@ def concat(optimizer):
     short_idx = optimizer.var.columns.droplevel(0).get_indexer(optimizer.var.short.columns)
 
     # NOTE: weights are in 'chain' order, whereas 'var.short' is in the order returned from :meth:`.LogFrame.organize_time`
-    weights = optimizer.weights.eval(session=optimizer.sess)[:, np.argsort(optimizer.chain)][:, short_idx]
+    # weights = optimizer.weights.eval(session=optimizer.sess)[:, np.argsort(optimizer.chain)][:, short_idx]
+    weights = optimizer.weights.eval(session=optimizer.sess)[:, short_idx]
 
     short = optimizer.var.short
     fn = short.columns.names.index('filename')

@@ -34,6 +34,9 @@ class Optimizer(Reader):
     tf_dtype = tf.float32
     """Default TensorFlow_ data type to use."""
 
+    time_units = 'datetime64[s]'
+    time_delta = 'timedelta64[s]'
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -56,7 +59,7 @@ class Optimizer(Reader):
                                            tf.random_normal_initializer(mean=0, stddev=20))
             short = tf.constant(self.var.short.fillna(0).values, self.tf_dtype) + self.offsets
             long = tf.constant(self.var.long.fillna(0).values, self.tf_dtype)
-            self.tf_data = tf.concat((long, short), 1)
+            self.extend_data(tf.concat((long, short), 1), 100, 3600)
 
 
     def overlap_and_contained(self):
@@ -81,13 +84,11 @@ class Optimizer(Reader):
         """
         stop = self.end_points.loc['stop'].values.reshape((1, -1))
         start = self.end_points.loc['start'].values.reshape((1, -1))
-        duration = (stop - start).astype('datetime64[s]').astype(float)
-        m = (stop - start.T).astype('datetime64[s]').astype(float)
-        overlap = np.where(m < m.T, m, m.T) # > 0 denotes actual overlap, < 0 gap.
-        self.overlap = m * m.T
-        self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
-
-
+        # duration = (stop - start).astype('datetime64[s]')
+        m = (stop - start.T).astype('timedelta64[s]')
+        return np.where(m < m.T, m, m.T).astype(float) + np.diag(np.repeat(-np.inf, self.var.shape[1]))
+        # self.overlap = m * m.T
+        # self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
     def chains(self, exclude_contained=True):
         """Attempt at a method that finds all permutations of data series combinations based on overlaps. Returns a :class:`~numpy.array` where each row corresponds to a sequence of series indexes referring to the columns of the input :class:`DataFrame`. Also keeps track of gaps that needed to be jumped for each of the rows. (The routine is based on actual timestamps, so overlap and jumping gaps refers to actual time gaps.) See :meth:`chain_gangs` for example of invocation.
         """
@@ -134,13 +135,38 @@ class Optimizer(Reader):
         print(gaps)
         return c
 
-    def parabola(self):
-        a, b = self.end_points.values.astype('datetime64[s]').astype(float)
+    def extend_data(self, tf_data, length, thresh=3600):
+        # needs to be called within a graph.as_default() context
+        stop = self.end_points.loc['stop'].values.reshape((1, -1))
+        start = self.end_points.loc['start'].values.reshape((1, -1))
+        D = (stop - start.T).astype(self.time_delta)
+        ov = np.where(D < D.T, D, D.T).astype(float) + np.diag(np.repeat(-np.inf, self.var.shape[1]))
+
+        i = np.argsort(ov)[:, -1]
+        j = np.where(ov[range(22), i] < thresh)[0]
+        s = list(set([tuple(k) for k in np.sort(np.r_[[i[j]], [j]], 0).T]))
+        t = np.r_[[[np.sort(stop[0, k])[0] for k in s]], [[np.sort(start[0, k])[1] for k in s]]]
+        t = t[0, :] + np.diff(t, 1, 0) / 2
+        idx = [self.var.index.get_loc(x, 'nearest') for x in t.flatten()]
+
+        dt = length * self.var.index.freq.delta.asm8.astype(self.time_delta) / 2
+        a, b = np.r_['1', self.end_points.values, t + np.array([[-dt], [dt]])].astype(self.time_units).astype(float)
         self.start = tf.get_variable('start', dtype=self.tf_dtype, initializer=tf.cast(a, self.tf_dtype))
         self.stop = tf.get_variable('stop', dtype=self.tf_dtype, initializer=tf.cast(b, self.tf_dtype))
-        t = tf.cast(np.array(self.var.index, dtype='datetime64[s]', ndmin=2).T.astype(float), self.tf_dtype, name='time')
-        weights = (t - self.start) * (t - self.stop) / (self.start - self.stop)
-        self.weights = tf.nn.softmax(weights)
+
+        n = length // 2
+        m = length - n
+        with self.graph.as_default():
+            ext = tf.get_variable('interpolators', (length, len(idx)), self.tf_dtype,
+                                  tf.random_normal_initializer(mean=np.nanmean(self.var), stddev=np.nanstd(self.var)))
+            intp = tf.stack([tf.concat((tf.zeros(idx[k] - n), ext[:, k], tf.zeros(self.var.shape[0] - idx[k] - m)), 0)
+                             for k in range(len(idx))])
+            self.tf_data = tf.concat((tf_data, tf.transpose(intp)), 1)
+
+    def parabola(self):
+        t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
+        self.raw_weights = (t - self.start) * (t - self.stop) / (self.start - self.stop)
+        self.weights = tf.nn.softmax(self.raw_weights)
         self.concat = tf.reduce_sum(self.weights * self.tf_data, 1)
 
         x0 = tf.reshape(self.concat[:-1], (-1, 1))
@@ -148,7 +174,7 @@ class Optimizer(Reader):
         lsq = tf.matrix_solve_ls(x0, x1)
         y = x0 * lsq
         self.resid = x0 * lsq - x1
-        ar_loss = tf.reduce_sum((self.resid * tf.reduce_sum(self.weights[1:, :], 1, keep_dims=True)) ** 2)
+        ar_loss = tf.reduce_sum(self.resid ** 2)
         return ar_loss
 
 
@@ -193,8 +219,8 @@ class Optimizer(Reader):
         return tf.reduce_sum(self.resid ** 2)
 
     def setup(self, learn=0.01, logdir=None):
-        chains = self.chains()
-        self.chain = chains[0] # we use only one chain for now
+        # chains = self.chains()
+        # self.chain = chains[0] # we use only one chain for now
 
         with self.graph.as_default():
             # loss = self._softmax(self.chain)

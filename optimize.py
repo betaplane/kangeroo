@@ -93,52 +93,6 @@ class Optimizer(Reader):
         # self.overlap = m * m.T
         # self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
 
-    def chains(self, exclude_contained=True):
-        """Attempt at a method that finds all permutations of data series combinations based on overlaps. Returns a :class:`~numpy.array` where each row corresponds to a sequence of series indexes referring to the columns of the input :class:`DataFrame`. Also keeps track of gaps that needed to be jumped for each of the rows. (The routine is based on actual timestamps, so overlap and jumping gaps refers to actual time gaps.) See :meth:`chain_gangs` for example of invocation.
-        """
-        if not hasattr(self, 'overlap'):
-            # self.overlap_and_contained()
-            self.overlap_fraction()
-
-        idx = self.start_sorted
-        # will hold all the gaps that needed to be jumped because there is no overlap; keys are rows in the returned np.array
-        gaps = {}
-
-        def stack(k, row):
-            i = row[-1]
-
-            # this is the set of previous series that we will not allow the sequence to go back to - *unless* we are at a series entirely contained within another
-            # if exclude_contained:
-            #     uturn = set(row).union(np.where(self.contained[:, i])[0]) # if we leave out all contained series, we remove them from the series we are jumping **to** (column index if we use row index otherwise)
-            # else:
-            #     uturn = set(row) - set(np.where(self.contained[i, :])[0])
-
-            uturn = set(row)
-            n = list(set(np.where(self.overlap[i] > 0)[0]) - uturn) if i >= 0 else []
-
-            # if there is a gap or we're at the end
-            if len(n) == 0:
-                j = np.where(idx == i)[0]
-                if j + 1 < len(idx):
-                    n = self.start_sorted[j + 1] # CHANGE THIS EVENTUALLY!!!!!!!!!
-                    if k in gaps:
-                        gap = self.end_points.ix['start', n.item()] - self.end_points.ix['stop', i]
-                        gaps[k].append((i, n.item(), gap))
-                    else:
-                        gaps[k] = [(i, n.item())]
-                # if we're at the end
-                else:
-                    n = [-9]
-            return np.hstack((row.reshape((1, -1)).repeat(len(n), 0), np.array(n).reshape((-1, 1))))
-
-        c = idx[0].reshape((1, 1))
-        stop = self.end_sorted[-1]
-        while not np.all([(stop in i) for i in c]):
-            c = np.vstack([stack(*i) for i in enumerate(c)])
-
-        print(gaps)
-        return c
-
     def distance(self, start, stop):
         d = (stop.reshape((1, -1)) - start.reshape((-1, 1))).astype(self.time_delta)
         D = np.abs(d)
@@ -188,70 +142,19 @@ class Optimizer(Reader):
         t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
         self.raw_weights = (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
         self.weights = tf.nn.softmax(self.raw_weights)
-        self.tf_data = tf.gather(tf.concat((tf_data, tf.stack(extra_vars, 1)), 1), i, axis=1)
-
-
-    def parabola(self):
-        t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
-        self.raw_weights = (t - self.start) * (t - self.stop) / (self.start - self.stop)
-        self.weights = tf.nn.softmax(self.raw_weights)
-        self.concat = tf.reduce_sum(self.weights * self.tf_data, 1)
+        data = tf.gather(tf.concat((tf_data, tf.stack(extra_vars, 1)), 1), i, axis=1)
+        self.concat = tf.reduce_sum(self.weights * data, 1)
 
         x0 = tf.reshape(self.concat[:-1], (-1, 1))
         x1 = tf.reshape(self.concat[1:], (-1, 1))
         lsq = tf.matrix_solve_ls(x0, x1)
         y = x0 * lsq
         self.resid = x0 * lsq - x1
-        ar_loss = tf.reduce_sum(self.resid ** 2)
-        return ar_loss
+        self.ar_loss = tf.reduce_sum(self.resid ** 2)
 
-
-    def _softmax(self, chain, s=1.):
-        t = np.array(self.var.index, dtype='datetime64[s]', ndmin=2).astype(np.float32).T
-        end_points = self.end_points.ix[['start', 'stop'], chain].values.astype('datetime64[s]')
-
-        # this shifts the start of one series over the stop of the previous one
-        cross = end_points.flatten()[1:-1].reshape((2, -1)).astype(float)
-
-        # this finds the mid point of either the transition or the gap (if there's no overlap)
-        self.mid_overlaps = (cross[0, :] + np.diff(cross, 1, 0) / 2)
-
-        init = tf.cast(self.mid_overlaps, self.tf_dtype)
-
-        # with self.graph.as_default():
-        self.cross = tf.get_variable('cross', dtype=self.tf_dtype, initializer=init, trainable=False)
-        self.cross_limit = tf.clip_by_value(self.cross,
-                                            tf.cast(cross[0, :], self.tf_dtype), tf.cast(cross[1, :], self.tf_dtype))
-
-        # this is the inflexion point halfway between the transition mid-points
-        flex = self.cross[:, :-1] + (self.cross[:, 1:] - self.cross[:, :-1]) / 2
-
-        # now I pad the ends appropriately
-        cr = tf.concat(([[0.]], self.cross), 1)
-        fl = tf.concat((cr[:, 1:2] / 2, flex), 1)
-
-        # this constructs a 'triangular' function with zero crossings in the right directions at the `cross` points
-        # (as arguments to the softmax function)
-        x = tf.concat((fl - cr[:, :-1] - np.abs(t - fl), t - cr[:, -1:]), 1)
-        self.weights = tf.nn.softmax(s * x, 1)
-        concat = self.weights * tf.gather(self.tf_data, chain, axis=1)
-        self.concat = tf.reduce_sum(concat, 1)
-
-        # this computes an AR(1) model, the residuals of which are used as the loss function
-        # see also :meth:`cut_ends`
-        x0 = tf.reshape(self.concat[:-1], (-1, 1))
-        x1 = tf.reshape(self.concat[1:], (-1, 1))
-        lsq = tf.matrix_solve_ls(x0, x1)
-        y = x0 * lsq
-        self.resid = x0 * lsq - x1
-        return tf.reduce_mean(self.resid ** 2)
 
     def setup(self, learn=0.01, logdir=None):
-        # chains = self.chains()
-        # self.chain = chains[0] # we use only one chain for now
-
         with self.graph.as_default():
-            # loss = self._softmax(self.chain)
             loss = self.parabola()
             u = tf.reduce_sum(self.weights[:, self.var.shape[1]:])
             loss = loss + u * 100

@@ -64,7 +64,7 @@ class LogFrame(pd.DataFrame):
         if self.flag.columns.get_level_values('data_flag').unique().item() == 'flag':
             return self.flag.apply(get_time_ranges)
         else:
-            return self.isnull().replace({False: 1, True: 0}).apply(get_time_ranges)
+            return self.notnull().astype(int).apply(get_time_ranges)
 
 
     def organize_time(self, length=100, indexers=False):

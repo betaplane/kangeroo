@@ -24,6 +24,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from datetime import datetime
+from scipy.sparse import csgraph
 import os
 from .core import *
 
@@ -37,7 +38,9 @@ class Optimizer(Reader):
     time_units = 'datetime64[s]'
     time_delta = 'timedelta64[s]'
 
-    def __init__(self, *args, **kwargs):
+    bridge_length = 100
+
+    def __init__(self, thresh=3600, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         # while testing only for self.level
@@ -50,8 +53,8 @@ class Optimizer(Reader):
         # just so it isn't recomputed every time (it's a @property)
         self.end_points = self.var.end_points
 
-        self.start_sorted = self.var.columns.get_indexer(self.end_points.loc['start'].sort_values().index)
-        self.end_sorted = self.var.columns.get_indexer(self.end_points.loc['stop'].sort_values().index)
+        # self.start_sorted = self.var.columns.get_indexer(self.end_points.loc['start'].sort_values().index)
+        # self.end_sorted = self.var.columns.get_indexer(self.end_points.loc['stop'].sort_values().index)
 
         self.graph = tf.Graph()
         with self.graph.as_default():
@@ -89,6 +92,7 @@ class Optimizer(Reader):
         return np.where(m < m.T, m, m.T).astype(float) + np.diag(np.repeat(-np.inf, self.var.shape[1]))
         # self.overlap = m * m.T
         # self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
+
     def chains(self, exclude_contained=True):
         """Attempt at a method that finds all permutations of data series combinations based on overlaps. Returns a :class:`~numpy.array` where each row corresponds to a sequence of series indexes referring to the columns of the input :class:`DataFrame`. Also keeps track of gaps that needed to be jumped for each of the rows. (The routine is based on actual timestamps, so overlap and jumping gaps refers to actual time gaps.) See :meth:`chain_gangs` for example of invocation.
         """
@@ -135,33 +139,57 @@ class Optimizer(Reader):
         print(gaps)
         return c
 
+    def distance(self, start, stop):
+        d = (stop.reshape((1, -1)) - start.reshape((-1, 1))).astype(self.time_delta)
+        D = np.abs(d)
+        return np.where(D < D.T, d, d.T).astype(float) + np.diag(np.repeat(-np.inf, len(start)))
+
+    def add_variable(self, start, stop, i):
+        n = self.bridge_length // 2
+        m = self.bridge_length - n
+        t = start[i[2]] + (start[i[2]] - stop[i[0]]) / 2
+        j = self.var.index.get_loc(t, 'nearest')
+        ext = tf.get_variable('intp_{}'.format(i[1]), (self.bridge_length, ), self.tf_dtype,
+                              tf.constant_initializer(np.nanmean(self.var)))
+        v = tf.concat((tf.zeros(j - n), ext, tf.zeros(self.var.shape[0] - j - m)), 0)
+        a = self.var.index.values[j - n]
+        b = self.var.index.values[j - n + self.bridge_length]
+        return v, a, b
+
     def extend_data(self, tf_data, length, thresh=3600):
         # needs to be called within a graph.as_default() context
-        stop = self.end_points.loc['stop'].values.reshape((1, -1))
-        start = self.end_points.loc['start'].values.reshape((1, -1))
-        D = (stop - start.T).astype(self.time_delta)
-        ov = np.where(D < D.T, D, D.T).astype(float) + np.diag(np.repeat(-np.inf, self.var.shape[1]))
+        stop = self.end_points.loc['stop'].values
+        start = self.end_points.loc['start'].values
 
-        i = np.argsort(ov)[:, -1]
-        j = np.where(ov[range(22), i] < thresh)[0]
-        s = list(set([tuple(k) for k in np.sort(np.r_[[i[j]], [j]], 0).T]))
-        t = np.r_[[[np.sort(stop[0, k])[0] for k in s]], [[np.sort(start[0, k])[1] for k in s]]]
-        t = t[0, :] + np.diff(t, 1, 0) / 2
-        idx = [self.var.index.get_loc(x, 'nearest') for x in t.flatten()]
+        D = self.distance(start, stop)
+        _, p = csgraph.dijkstra(-D, return_predecessors=True)
+        first = start.argsort()[0]
+        i = [stop.argsort()[-1]]
+        extra_vars = []
+        joins = []
+        while i[0] != first:
+            i.insert(0, p[first, i[0]])
+            if D[i[0], i[1]] < thresh:
+                i.insert(1, self.var.shape[1] + len(extra_vars))
+                v, a, b = self.add_variable(start, stop, i)
+                extra_vars.append(v)
+                start = np.r_[start, a]
+                stop = np.r_[stop, b]
 
-        dt = length * self.var.index.freq.delta.asm8.astype(self.time_delta) / 2
-        a, b = np.r_['1', self.end_points.values, t + np.array([[-dt], [dt]])].astype(self.time_units).astype(float)
-        self.start = tf.get_variable('start', dtype=self.tf_dtype, initializer=tf.cast(a, self.tf_dtype))
-        self.stop = tf.get_variable('stop', dtype=self.tf_dtype, initializer=tf.cast(b, self.tf_dtype))
+        start = start.astype(self.time_units).astype(float)
+        stop = stop.astype(self.time_units).astype(float)
+        m = ((start + stop) / 2)[i]
+        k = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
+        self.knots = tf.get_variable('knots', (len(k),), self.tf_dtype, tf.constant_initializer(k))
+        l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
+                       tf.reshape(tf.stack((self.knots, self.knots), 1), (-1,)),
+                       tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
 
-        n = length // 2
-        m = length - n
-        with self.graph.as_default():
-            ext = tf.get_variable('interpolators', (length, len(idx)), self.tf_dtype,
-                                  tf.random_normal_initializer(mean=np.nanmean(self.var), stddev=np.nanstd(self.var)))
-            intp = tf.stack([tf.concat((tf.zeros(idx[k] - n), ext[:, k], tf.zeros(self.var.shape[0] - idx[k] - m)), 0)
-                             for k in range(len(idx))])
-            self.tf_data = tf.concat((tf_data, tf.transpose(intp)), 1)
+        t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
+        self.raw_weights = (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
+        self.weights = tf.nn.softmax(self.raw_weights)
+        self.tf_data = tf.gather(tf.concat((tf_data, tf.stack(extra_vars, 1)), 1), i, axis=1)
+
 
     def parabola(self):
         t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
@@ -216,7 +244,7 @@ class Optimizer(Reader):
         lsq = tf.matrix_solve_ls(x0, x1)
         y = x0 * lsq
         self.resid = x0 * lsq - x1
-        return tf.reduce_sum(self.resid ** 2)
+        return tf.reduce_mean(self.resid ** 2)
 
     def setup(self, learn=0.01, logdir=None):
         # chains = self.chains()
@@ -225,6 +253,8 @@ class Optimizer(Reader):
         with self.graph.as_default():
             # loss = self._softmax(self.chain)
             loss = self.parabola()
+            u = tf.reduce_sum(self.weights[:, self.var.shape[1]:])
+            loss = loss + u * 100
             self.step = tf.get_variable('global_step', initializer=0, trainable=False)
             train_op = tf.train.GradientDescentOptimizer(learn).minimize(loss, global_step=self.step)
 
@@ -236,9 +266,13 @@ class Optimizer(Reader):
             if logdir is not None:
                 subdir = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
                 self.tb_writer = tf.summary.FileWriter(os.path.join(logdir, subdir))
-
                 tf.summary.scalar('loss', loss)
                 tf.summary.histogram('offsets', self.offsets)
+
+                for i in range(self.weights.shape[1]):
+                    tf.summary.scalar('start', self.start[i] - self.start_init[i])
+                    tf.summary.scalar('stop', self.stop[i] - self.stop_init[i])
+
                 # tf.summary.histogram('transitions', self.cross - self.mid_overlaps)
                 summary = tf.summary.merge_all()
 

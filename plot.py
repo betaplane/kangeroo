@@ -118,25 +118,34 @@ class Plots(object):
 
 def concat(optimizer):
     fig, ax = plt.subplots()
-    plt.plot(optimizer.var.index, optimizer.concat.eval(session=optimizer.sess))
+    x = optimizer.concat.eval(session=optimizer.sess)
+    idx = optimizer.var.index
+    plt.plot(idx, x)
 
     short_idx = optimizer.var.columns.droplevel(0).get_indexer(optimizer.var.short.columns)
 
     # NOTE: weights are in 'chain' order, whereas 'var.short' is in the order returned from :meth:`.LogFrame.organize_time`
     # weights = optimizer.weights.eval(session=optimizer.sess)[:, np.argsort(optimizer.chain)][:, short_idx]
-    weights = optimizer.weights.eval(session=optimizer.sess)[:, short_idx]
+    weights = optimizer.weights.eval(session=optimizer.sess)
+    w = weights[:, short_idx]
+    u = np.where(weights[:, optimizer.var.shape[1]:])[0]
+
+    plt.plot(idx[u], x[u], 'ro')
 
     short = optimizer.var.short
     fn = short.columns.names.index('filename')
     height = short.shape[1]
+
+    for i, l in enumerate(optimizer.var.long.iteritems()):
+        plt.plot(l[1].dropna(), 'k-')
 
     for i, s in enumerate(short.iteritems()):
         x = s[1].dropna()
         start_t = x.index[0]
         p = plt.plot(x)[0]
 
-        idx = optimizer.var.index[weights[:, i].astype(bool)]
-        ax.axvspan(idx.min(), idx.max(), alpha=.4, facecolor=p.get_color())
+        k = idx[w[:, i].astype(bool)]
+        ax.axvspan(k.min(), k.max(), alpha=.4, facecolor=p.get_color())
 
         ax.annotate(s[0][fn], xy=(start_t, 1 - (1 + i) / height),
                     xycoords=('data', 'axes fraction'), color=p.get_color())

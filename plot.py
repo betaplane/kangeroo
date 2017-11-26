@@ -122,17 +122,19 @@ def concat(optimizer):
     idx = optimizer.var.index
     plt.plot(idx, x)
 
-    short_idx = optimizer.var.columns.droplevel(0).get_indexer(optimizer.var.short.columns)
+    short = optimizer.var.short
+    short_idx = optimizer.var.columns.droplevel(0).get_indexer(short.columns)
+    short_idx = [optimizer.idx_map[i] for i in short_idx]
+    extra_idx = [optimizer.idx_map[i] for i in range(optimizer.var.shape[1], optimizer.weights.shape[1])]
 
     # NOTE: weights are in 'chain' order, whereas 'var.short' is in the order returned from :meth:`.LogFrame.organize_time`
     # weights = optimizer.weights.eval(session=optimizer.sess)[:, np.argsort(optimizer.chain)][:, short_idx]
     weights = optimizer.weights.eval(session=optimizer.sess)
     w = weights[:, short_idx]
-    u = np.where(weights[:, optimizer.var.shape[1]:])[0]
+    u = np.where(weights[:, extra_idx])[0]
 
     plt.plot(idx[u], x[u], 'ro')
 
-    short = optimizer.var.short
     fn = short.columns.names.index('filename')
     height = short.shape[1]
 

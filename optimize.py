@@ -130,11 +130,13 @@ class Optimizer(Reader):
                 start = np.r_[start, a]
                 stop = np.r_[stop, b]
 
+        self.idx_map = dict(zip(i, range(len(i))))
+
         start = start.astype(self.time_units).astype(float)
         stop = stop.astype(self.time_units).astype(float)
         m = ((start + stop) / 2)[i]
-        k = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
-        self.knots = tf.get_variable('knots', (len(k),), self.tf_dtype, tf.constant_initializer(k))
+        self.k_init = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
+        self.knots = tf.get_variable('knots', (len(self.k_init),), self.tf_dtype, tf.constant_initializer(self.k_init))
         l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
                        tf.reshape(tf.stack((self.knots, self.knots), 1), (-1,)),
                        tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
@@ -155,9 +157,8 @@ class Optimizer(Reader):
 
     def setup(self, learn=0.01, logdir=None):
         with self.graph.as_default():
-            loss = self.parabola()
             u = tf.reduce_sum(self.weights[:, self.var.shape[1]:])
-            loss = loss + u * 100
+            loss = self.ar_loss
             self.step = tf.get_variable('global_step', initializer=0, trainable=False)
             train_op = tf.train.GradientDescentOptimizer(learn).minimize(loss, global_step=self.step)
 
@@ -172,11 +173,9 @@ class Optimizer(Reader):
                 tf.summary.scalar('loss', loss)
                 tf.summary.histogram('offsets', self.offsets)
 
-                for i in range(self.weights.shape[1]):
-                    tf.summary.scalar('start', self.start[i] - self.start_init[i])
-                    tf.summary.scalar('stop', self.stop[i] - self.stop_init[i])
+                for i in range(len(self.k_init)):
+                    tf.summary.scalar('knots', self.knots[i] - self.k_init[i])
 
-                # tf.summary.histogram('transitions', self.cross - self.mid_overlaps)
                 summary = tf.summary.merge_all()
 
                 def update():

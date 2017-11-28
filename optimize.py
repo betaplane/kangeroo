@@ -32,7 +32,7 @@ from .core import *
 
 class Optimizer(Reader):
 
-    tf_dtype = tf.float32
+    tf_dtype = tf.float64
     """Default TensorFlow_ data type to use."""
 
     time_units = 'datetime64[s]'
@@ -58,11 +58,13 @@ class Optimizer(Reader):
 
         self.graph = tf.Graph()
         with self.graph.as_default():
-            self.offsets = tf.get_variable('short_offsets', (1, self.var.short.shape[1]), self.tf_dtype,
-                                           tf.random_normal_initializer(mean=0, stddev=20))
-            short = tf.constant(self.var.short.fillna(0).values, self.tf_dtype) + self.offsets
-            long = tf.constant(self.var.long.fillna(0).values, self.tf_dtype)
-            self.extend_data(tf.concat((long, short), 1), 100, 3600)
+            with tf.variable_scope('data'):
+                self.offsets = tf.get_variable('offsets', (1, self.var.short.shape[1]), self.tf_dtype,
+                                               tf.random_normal_initializer(mean=0, stddev=20))
+                short = tf.constant(self.var.short.fillna(0).values, self.tf_dtype, name='short') + self.offsets
+                long = tf.constant(self.var.long.fillna(0).values, self.tf_dtype, name='long')
+                concat = tf.concat((long, short), 1, name='data')
+            self.extend_data(concat, 100, 3600)
 
 
     def overlap_and_contained(self):
@@ -105,7 +107,7 @@ class Optimizer(Reader):
         j = self.var.index.get_loc(t, 'nearest')
         ext = tf.get_variable('intp_{}'.format(i[1]), (self.bridge_length, ), self.tf_dtype,
                               tf.constant_initializer(np.nanmean(self.var)))
-        v = tf.concat((tf.zeros(j - n), ext, tf.zeros(self.var.shape[0] - j - m)), 0)
+        v = tf.concat((tf.zeros(j - n, self.tf_dtype), ext, tf.zeros(self.var.shape[0] - j - m, self.tf_dtype)), 0)
         a = self.var.index.values[j - n]
         b = self.var.index.values[j - n + self.bridge_length]
         return v, a, b
@@ -121,46 +123,58 @@ class Optimizer(Reader):
         i = [stop.argsort()[-1]]
         extra_vars = []
         joins = []
-        while i[0] != first:
-            i.insert(0, p[first, i[0]])
-            if D[i[0], i[1]] < thresh:
-                i.insert(1, self.var.shape[1] + len(extra_vars))
-                v, a, b = self.add_variable(start, stop, i)
-                extra_vars.append(v)
-                start = np.r_[start, a]
-                stop = np.r_[stop, b]
+        with tf.variable_scope('extra_vars'):
+            while i[0] != first:
+                i.insert(0, p[first, i[0]])
+                if D[i[0], i[1]] < thresh:
+                    i.insert(1, self.var.shape[1] + len(extra_vars))
+                    v, a, b = self.add_variable(start, stop, i)
+                    extra_vars.append(v)
+                    start = np.r_[start, a]
+                    stop = np.r_[stop, b]
 
         self.idx_map = dict(zip(i, range(len(i))))
+        self.extra_idx = [self.idx_map[i] for i in range(self.var.shape[1], len(i))]
 
         start = start.astype(self.time_units).astype(float)
         stop = stop.astype(self.time_units).astype(float)
         m = ((start + stop) / 2)[i]
         self.k_init = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
-        self.knots = tf.get_variable('knots', (len(self.k_init),), self.tf_dtype, tf.constant_initializer(self.k_init))
-        l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
-                       tf.reshape(tf.stack((self.knots, self.knots), 1), (-1,)),
-                       tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
+        with tf.variable_scope('knots'):
+            self.knots = tf.get_variable('knots', (len(self.k_init),), self.tf_dtype, tf.constant_initializer(self.k_init))
+            l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
+                           tf.reshape(tf.stack((self.knots, self.knots), 1), (-1,)),
+                           tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
 
-        t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
-        self.raw_weights = (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
-        self.weights = tf.nn.softmax(self.raw_weights)
-        data = tf.gather(tf.concat((tf_data, tf.stack(extra_vars, 1)), 1), i, axis=1)
-        self.concat = tf.reduce_sum(self.weights * data, 1)
+        with tf.variable_scope('weights'):
+            t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
+            self.raw_weights = (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
+            self.weights = tf.nn.softmax(self.raw_weights)
+        with tf.variable_scope('concat'):
+            data = tf.gather(tf.concat((tf_data, tf.stack(extra_vars, 1)), 1), i, axis=1)
+            self.concat = tf.reduce_sum(self.weights * data, 1, name='concat')
 
-        x0 = tf.reshape(self.concat[:-1], (-1, 1))
-        x1 = tf.reshape(self.concat[1:], (-1, 1))
-        lsq = tf.matrix_solve_ls(x0, x1)
-        y = x0 * lsq
-        self.resid = x0 * lsq - x1
-        self.ar_loss = tf.reduce_sum(self.resid ** 2)
+        with tf.variable_scope('loss'):
+            x0 = tf.reshape(self.concat[:-1], (-1, 1))
+            x1 = tf.reshape(self.concat[1:], (-1, 1))
+            lsq = tf.matrix_solve_ls(x0, x1)
+            y = x0 * lsq
+            self.resid = x0 * lsq - x1
+            self.ar_loss = tf.reduce_mean(self.resid ** 2, name='ar_loss')
+            lx = tf.gather(l, self.extra_idx, axis=0)
+            dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float)
+            self.extra_loss = tf.reduce_sum((lx[:, 1] - lx[:, 0]), name='extra_loss') / dt
+            # extra_loss = tf.gather(self.weights, self.extra_idx, axis=1)
 
 
     def setup(self, learn=0.01, logdir=None):
         with self.graph.as_default():
-            u = tf.reduce_sum(self.weights[:, self.var.shape[1]:])
-            loss = self.ar_loss
+            # extra_loss = tf.reduce_sum(tf.gather(self.raw_weights, self.extra_idx, axis=1), name='extra_loss')
+            loss = self.ar_loss + self.extra_loss
+            # loss = self.extra_loss
             self.step = tf.get_variable('global_step', initializer=0, trainable=False)
-            train_op = tf.train.GradientDescentOptimizer(learn).minimize(loss, global_step=self.step)
+            self.train = tf.train.GradientDescentOptimizer(learn)
+            train_op = self.train.minimize(loss, global_step=self.step)
 
             self.sess = tf.Session(graph=self.graph)
 
@@ -169,8 +183,10 @@ class Optimizer(Reader):
 
             if logdir is not None:
                 subdir = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-                self.tb_writer = tf.summary.FileWriter(os.path.join(logdir, subdir))
+                self.tb_writer = tf.summary.FileWriter(os.path.join(logdir, subdir), graph=self.graph)
                 tf.summary.scalar('loss', loss)
+                tf.summary.scalar('ar_loss', self.ar_loss)
+                tf.summary.scalar('extra_loss', self.extra_loss)
                 tf.summary.histogram('offsets', self.offsets)
 
                 for i in range(len(self.k_init)):

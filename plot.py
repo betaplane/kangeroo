@@ -131,7 +131,7 @@ def concat(optimizer):
     # weights = optimizer.weights.eval(session=optimizer.sess)[:, np.argsort(optimizer.chain)][:, short_idx]
     weights = optimizer.weights.eval(session=optimizer.sess)
     w = weights[:, short_idx]
-    u = np.where(weights[:, extra_idx])[0]
+    u = np.where(weights[:, optimizer.extra_idx])[0]
 
     plt.plot(idx[u], x[u], 'ro')
 

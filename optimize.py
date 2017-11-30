@@ -163,18 +163,18 @@ class Optimizer(Reader):
             self.ar_loss = tf.reduce_mean(self.resid ** 2, name='ar_loss')
             lx = tf.gather(l, self.extra_idx, axis=0)
             dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float)
-            self.extra_loss = tf.reduce_sum((lx[:, 1] - lx[:, 0]), name='extra_loss') / dt
-            # extra_loss = tf.gather(self.weights, self.extra_idx, axis=1)
+            self.extra_loss = tf.reduce_sum((lx[:, 1] - lx[:, 0]), name='extra_loss')
 
 
     def setup(self, learn=0.01, logdir=None):
         with self.graph.as_default():
             # extra_loss = tf.reduce_sum(tf.gather(self.raw_weights, self.extra_idx, axis=1), name='extra_loss')
-            loss = self.ar_loss + self.extra_loss
-            # loss = self.extra_loss
+            # loss = self.ar_loss + self.extra_loss
+            loss = self.extra_loss ** 2
             self.step = tf.get_variable('global_step', initializer=0, trainable=False)
-            self.train = tf.train.GradientDescentOptimizer(learn)
-            train_op = self.train.minimize(loss, global_step=self.step)
+            # self.train = tf.train.GradientDescentOptimizer(learn)
+            self.train = tf.train.AdamOptimizer(learn)
+            train_op = self.train.minimize(loss, self.step)
 
             self.sess = tf.Session(graph=self.graph)
 

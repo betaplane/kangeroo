@@ -60,11 +60,11 @@ class Optimizer(Reader):
         with self.graph.as_default():
             with tf.variable_scope('data'):
                 self.offsets = tf.get_variable('offsets', (1, self.var.short.shape[1]), self.tf_dtype,
-                                               tf.random_normal_initializer(mean=0, stddev=20))
+                                               tf.zeros_initializer)
                 short = tf.constant(self.var.short.fillna(0).values, self.tf_dtype, name='short') + self.offsets
                 long = tf.constant(self.var.long.fillna(0).values, self.tf_dtype, name='long')
                 concat = tf.concat((long, short), 1, name='data')
-            self.extend_data(concat, 100, 3600)
+            self.extend_data(concat, 100, thresh)
 
 
     def overlap_and_contained(self):
@@ -136,8 +136,9 @@ class Optimizer(Reader):
         self.idx_map = dict(zip(i, range(len(i))))
         self.extra_idx = [self.idx_map[i] for i in range(self.var.shape[1], len(i))]
 
-        start = start.astype(self.time_units).astype(float)
-        stop = stop.astype(self.time_units).astype(float)
+        dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float) * 10
+        start = start.astype(self.time_units).astype(float) / dt
+        stop = stop.astype(self.time_units).astype(float) / dt
         m = ((start + stop) / 2)[i]
         self.k_init = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
         with tf.variable_scope('knots'):
@@ -147,8 +148,10 @@ class Optimizer(Reader):
                            tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
 
         with tf.variable_scope('weights'):
-            t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float), self.tf_dtype, name='time')
-            self.raw_weights = (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
+            self.slope = tf.get_variable('slope', (), self.tf_dtype, tf.constant_initializer(dt), trainable=False)
+            t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float),
+                        self.tf_dtype, name='time') / dt
+            self.raw_weights = self.slope * (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
             self.weights = tf.nn.softmax(self.raw_weights)
         with tf.variable_scope('concat'):
             data = tf.gather(tf.concat((tf_data, tf.stack(extra_vars, 1)), 1), i, axis=1)
@@ -160,17 +163,17 @@ class Optimizer(Reader):
             lsq = tf.matrix_solve_ls(x0, x1)
             y = x0 * lsq
             self.resid = x0 * lsq - x1
-            self.ar_loss = tf.reduce_mean(self.resid ** 2, name='ar_loss')
+            self.ar_loss = tf.reduce_sum(self.resid ** 2, name='ar_loss')
             lx = tf.gather(l, self.extra_idx, axis=0)
-            dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float)
+            # self.extra_loss = tf.reduce_mean(self.ar_loss * tf.reduce_sum(tf.nn.softmax(lx), 1))
             self.extra_loss = tf.reduce_sum((lx[:, 1] - lx[:, 0]), name='extra_loss')
 
 
     def setup(self, learn=0.01, logdir=None):
         with self.graph.as_default():
             # extra_loss = tf.reduce_sum(tf.gather(self.raw_weights, self.extra_idx, axis=1), name='extra_loss')
-            # loss = self.ar_loss + self.extra_loss
-            loss = self.extra_loss ** 2
+            loss = self.ar_loss + self.extra_loss
+            # loss = self.extra_loss ** 4
             self.step = tf.get_variable('global_step', initializer=0, trainable=False)
             # self.train = tf.train.GradientDescentOptimizer(learn)
             self.train = tf.train.AdamOptimizer(learn)

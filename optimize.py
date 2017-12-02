@@ -137,10 +137,13 @@ class Optimizer(Reader):
         self.extra_idx = [self.idx_map[i] for i in range(self.var.shape[1], len(i))]
 
         dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float) * 10
+        t = np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float) / dt
         start = start.astype(self.time_units).astype(float) / dt
         stop = stop.astype(self.time_units).astype(float) / dt
         m = ((start + stop) / 2)[i]
         self.k_init = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
+        self.k_lims = np.vstack((start[i[1:]], stop[i[:-1]]))
+
         with tf.variable_scope('knots'):
             self.knots = tf.get_variable('knots', (len(self.k_init),), self.tf_dtype, tf.constant_initializer(self.k_init))
             l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
@@ -148,9 +151,7 @@ class Optimizer(Reader):
                            tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
 
         with tf.variable_scope('weights'):
-            self.slope = tf.get_variable('slope', (), self.tf_dtype, tf.constant_initializer(dt), trainable=False)
-            t = tf.cast(np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float),
-                        self.tf_dtype, name='time') / dt
+            self.slope = tf.get_variable('slope', (), self.tf_dtype, tf.constant_initializer(dt/2000), trainable=False)
             self.raw_weights = self.slope * (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
             self.weights = tf.nn.softmax(self.raw_weights)
         with tf.variable_scope('concat'):
@@ -163,7 +164,9 @@ class Optimizer(Reader):
             lsq = tf.matrix_solve_ls(x0, x1)
             y = x0 * lsq
             self.resid = x0 * lsq - x1
-            self.ar_loss = tf.reduce_sum(self.resid ** 2, name='ar_loss')
+            # only use the residual inside the overlap zones as loss function
+            mask = np.where((t >= self.k_lims[:1, :]) & (t <= self.k_lims[1:, :]))[0]
+            self.ar_loss = tf.reduce_sum(tf.gather(self.resid, mask, axis=0) ** 2, name='ar_loss')
             lx = tf.gather(l, self.extra_idx, axis=0)
             # self.extra_loss = tf.reduce_mean(self.ar_loss * tf.reduce_sum(tf.nn.softmax(lx), 1))
             self.extra_loss = tf.reduce_sum((lx[:, 1] - lx[:, 0]), name='extra_loss')
@@ -172,7 +175,7 @@ class Optimizer(Reader):
     def setup(self, learn=0.01, logdir=None):
         with self.graph.as_default():
             # extra_loss = tf.reduce_sum(tf.gather(self.raw_weights, self.extra_idx, axis=1), name='extra_loss')
-            loss = self.ar_loss + self.extra_loss
+            loss = self.ar_loss + self.extra_loss * 100
             # loss = self.extra_loss ** 4
             self.step = tf.get_variable('global_step', initializer=0, trainable=False)
             # self.train = tf.train.GradientDescentOptimizer(learn)
@@ -213,6 +216,7 @@ class Optimizer(Reader):
         prog = tf.keras.utils.Progbar(steps)
         for i in range(steps):
             l = self._update()
+            self.sess.run(tf.assign(self.knots, tf.clip_by_value(self.knots, self.k_lims[0, :], self.k_lims[1, :])))
             prog.update(i, [('Loss', l)])
 
         if hasattr(self, 'tb_writer'):

@@ -38,9 +38,7 @@ class Optimizer(Reader):
     time_units = 'datetime64[s]'
     time_delta = 'timedelta64[s]'
 
-    bridge_length = 100
-
-    def __init__(self, thresh=3600, *args, **kwargs):
+    def __init__(self, logdir=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         # while testing only for self.level
@@ -49,6 +47,8 @@ class Optimizer(Reader):
 
         # only self.var is sorted correctly, i.e. in the same way as self.columns and self.tf_data
         self.var = var.resample('30T').asfreq().organize_time()
+        self.float_index = pd.Index(self.var.index.values.astype(self.time_units).astype(float))
+        self.dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float) * 10
 
         # just so it isn't recomputed every time (it's a @property)
         self.end_points = self.var.end_points
@@ -57,14 +57,23 @@ class Optimizer(Reader):
         # self.end_sorted = self.var.columns.get_indexer(self.end_points.loc['stop'].sort_values().index)
 
         self.graph = tf.Graph()
+        self.sess = tf.Session(graph=self.graph)
         with self.graph.as_default():
             with tf.variable_scope('data'):
                 self.offsets = tf.get_variable('offsets', (1, self.var.short.shape[1]), self.tf_dtype,
                                                tf.zeros_initializer)
                 short = tf.constant(self.var.short.fillna(0).values, self.tf_dtype, name='short') + self.offsets
                 long = tf.constant(self.var.long.fillna(0).values, self.tf_dtype, name='long')
-                concat = tf.concat((long, short), 1, name='data')
-            self.extend_data(concat, 100, thresh)
+                self.tf_data = tf.concat((long, short), 1, name='data')
+            self.extra_var = tf.get_variable('extra', (self.var.shape[0], 1), self.tf_dtype,
+                                             tf.constant_initializer(np.nanmean(self.var)))
+            self.sess.run(tf.initialize_variables([self.offsets, self.extra_var]))
+            self.walk()
+
+        if logdir is not None:
+            subdir = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            self.tb_writer = tf.summary.FileWriter(os.path.join(logdir, subdir), graph=self.graph)
+            self.tb_writer.flush()
 
 
     def overlap_and_contained(self):
@@ -96,43 +105,76 @@ class Optimizer(Reader):
         # self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
 
     def distance(self, start, stop):
-        d = (stop.reshape((1, -1)) - start.reshape((-1, 1))).astype(self.time_delta)
+        d = (stop.reshape((1, -1)) - start.reshape((-1, 1)))
         D = np.abs(d)
-        return np.where(D < D.T, d, d.T).astype(float) + np.diag(np.repeat(-np.inf, len(start)))
+        return np.where(D < D.T, d, d.T) + np.diag(np.repeat(-np.inf, len(start)))
 
-    def add_variable(self, start, stop, i):
-        n = self.bridge_length // 2
-        m = self.bridge_length - n
-        t = start[i[2]] + (start[i[2]] - stop[i[0]]) / 2
-        j = self.var.index.get_loc(t, 'nearest')
-        ext = tf.get_variable('intp_{}'.format(i[1]), (self.bridge_length, ), self.tf_dtype,
-                              tf.constant_initializer(np.nanmean(self.var)))
-        v = tf.concat((tf.zeros(j - n, self.tf_dtype), ext, tf.zeros(self.var.shape[0] - j - m, self.tf_dtype)), 0)
-        a = self.var.index.values[j - n]
-        b = self.var.index.values[j - n + self.bridge_length]
-        return v, a, b
+    def add_variable(self, b, c):
+        i = self.var.shape[1] + len(self.extra_vars)
+        self.order.insert(1, i)
+        ext = tf.get_variable('intp_{}'.format(i), (b - c - 1, ), self.tf_dtype,
+                          tf.constant_initializer(np.nanmean(self.var)))
+        self.extra_vars.append(ext)
+        self.extra_idx = self.var.index[c+1: b] # NOTE: eventually, needs to extend
+        self.sess.run(tf.initialize_variables([ext]))
+        return ext
 
-    def extend_data(self, tf_data, length, thresh=3600):
+    def local_concat(self, start, stop):
+        i = self.order[:2]
+        a, b, c, d = self.float_index.get_indexer(np.r_[start[i], stop[i]])
+        
+        # data = tf.gather(self.tf_data, i, axis=1)
+        if b - c > 1: # if there's a gap
+            ext = self.add_variable(b, c)
+            # self.concat = tf.concat((data[a: c+1, 0], ext, data[b: d+1, 1]), 0)
+            self.seams.insert(0, self.order[:3])
+            self.knots.insert(0, sum(self.float_index[[b-1, b]]) / 2)
+            self.knots.insert(0, sum(self.float_index[[c, c+1]]) / 2)
+        else:
+            if b - c == 1: # if there's neither gap nor overlap
+                self.knots.insert(0, sum(self.float_index[[b, c]]) / 2)
+            else:
+                mid = (start[i] + stop[i]) / 2
+                self.knots.insert(0, (max(mid[0], start[i[1]]) + min(mid[1], stop[i[0]])) / 2)
+            # w = self.construct_weights(a, d, self.knots[0])
+            # concat = data[a: d+1, :]
+            # self.concat = tf.reduce_sum(concat * w, 1)
+            self.seams.insert(0, self.order[:2])
+
+        # resid = self.ar_resid(self.concat)
+        # self.ar_loss = tf.reduce_sum(self.resid ** 2)
+
+
+    def ar_resid(self, concat):
+        x0 = tf.reshape(concat[:-1], (-1, 1))
+        x1 = tf.reshape(concat[1:], (-1, 1))
+        lsq = tf.matrix_solve_ls(x0, x1)
+        return x0 * lsq - x1
+
+    def optimize(self, loss, learn=0.1, n_iter=100):
+        prog = tf.keras.utils.Progbar(n_iter)
+        with self.graph.as_default():
+            op = tf.train.AdamOptimizer(learn).minimize(loss)
+            tf.global_variables_initializer().run(session=self.sess)
+            for i in range(n_iter):
+                _, l = self.sess.run([op, loss])
+                prog.update(i, [('Loss', l)])
+
+    def walk(self):
         # needs to be called within a graph.as_default() context
-        stop = self.end_points.loc['stop'].values
-        start = self.end_points.loc['start'].values
+        stop = self.end_points.loc['stop'].values.astype(self.time_units).astype(float)
+        start = self.end_points.loc['start'].values.astype(self.time_units).astype(float)
+        self.indexes = [np.arange(*(self.float_index.get_indexer(i) + [0, 1]), dtype=np.int32) for i in zip(start, stop)]
 
         D = self.distance(start, stop)
         _, p = csgraph.dijkstra(-D, return_predecessors=True)
         first = start.argsort()[0]
-        i = [stop.argsort()[-1]]
-        extra_vars = []
-        joins = []
-        with tf.variable_scope('extra_vars'):
-            while i[0] != first:
-                i.insert(0, p[first, i[0]])
-                if D[i[0], i[1]] < thresh:
-                    i.insert(1, self.var.shape[1] + len(extra_vars))
-                    v, a, b = self.add_variable(start, stop, i)
-                    extra_vars.append(v)
-                    start = np.r_[start, a]
-                    stop = np.r_[stop, b]
+        self.order = [stop.argsort()[-1]]
+        while self.order[0] != first:
+            self.order.insert(0, p[first, self.order[0]])
 
+
+    def _old(self):
         self.idx_map = dict(zip(i, range(len(i))))
         self.extra_idx = [self.idx_map[i] for i in range(self.var.shape[1], len(i))]
 
@@ -143,33 +185,16 @@ class Optimizer(Reader):
         m = ((start + stop) / 2)[i]
         self.k_init = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
         self.k_lims = np.vstack((start[i[1:]], stop[i[:-1]]))
+        l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
+                                  tf.reshape(tf.stack((self.knots, self.knots), 1), (-1,)),
+                                  tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
 
-        with tf.variable_scope('knots'):
-            self.knots = tf.get_variable('knots', (len(self.k_init),), self.tf_dtype, tf.constant_initializer(self.k_init))
-            l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
-                           tf.reshape(tf.stack((self.knots, self.knots), 1), (-1,)),
-                           tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
-
-        with tf.variable_scope('weights'):
-            self.slope = tf.get_variable('slope', (), self.tf_dtype, tf.constant_initializer(dt/2000), trainable=False)
-            self.raw_weights = self.slope * (t - l[:, 0]) * (t - l[:, 1]) / (l[:, 0] - l[:, 1])
-            self.weights = tf.nn.softmax(self.raw_weights)
-        with tf.variable_scope('concat'):
-            data = tf.gather(tf.concat((tf_data, tf.stack(extra_vars, 1)), 1), i, axis=1)
-            self.concat = tf.reduce_sum(self.weights * data, 1, name='concat')
-
-        with tf.variable_scope('loss'):
-            x0 = tf.reshape(self.concat[:-1], (-1, 1))
-            x1 = tf.reshape(self.concat[1:], (-1, 1))
-            lsq = tf.matrix_solve_ls(x0, x1)
-            y = x0 * lsq
-            self.resid = x0 * lsq - x1
-            # only use the residual inside the overlap zones as loss function
-            mask = np.where((t >= self.k_lims[:1, :]) & (t <= self.k_lims[1:, :]))[0]
-            self.ar_loss = tf.reduce_sum(tf.gather(self.resid, mask, axis=0) ** 2, name='ar_loss')
-            lx = tf.gather(l, self.extra_idx, axis=0)
-            # self.extra_loss = tf.reduce_mean(self.ar_loss * tf.reduce_sum(tf.nn.softmax(lx), 1))
-            self.extra_loss = tf.reduce_sum((lx[:, 1] - lx[:, 0]), name='extra_loss')
+    def construct_weights(self):
+        # self.knots = tf.get_variable('knots', (len(self.k_init),), self.tf_dtype, tf.constant_initializer(self.k_init))
+        l = np.r_[self.float_index[0] - self.dt, np.repeat(self.knots, 2), self.float_index[-1] + self.dt].reshape((-1, 2))
+        t = self.float_index.values
+        self.raw_weights = (t - l[:, :1]) * (t - l[:, 1:]) / (l[:, :1] - l[:, 1:])
+        self.weights = tf.nn.softmax(self.raw_weights[np.argsort(self.order), :].T)
 
 
     def setup(self, learn=0.01, logdir=None):
@@ -188,8 +213,6 @@ class Optimizer(Reader):
             self.original_concat = self.concat.eval(session=self.sess)
 
             if logdir is not None:
-                subdir = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-                self.tb_writer = tf.summary.FileWriter(os.path.join(logdir, subdir), graph=self.graph)
                 tf.summary.scalar('loss', loss)
                 tf.summary.scalar('ar_loss', self.ar_loss)
                 tf.summary.scalar('extra_loss', self.extra_loss)

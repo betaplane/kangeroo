@@ -155,3 +155,34 @@ def concat(optimizer):
     bx = ax.twinx()
     bx.plot(optimizer.var.index[1:], optimizer.resid.eval(session=optimizer.sess), color='grey', alpha=.5)
     fig.show()
+
+def concat2(opt):
+    short_idx = opt.var.columns.droplevel(0).get_indexer(opt.var.short.columns)
+    long_idx = opt.var.columns.droplevel(0).get_indexer(opt.var.long.columns)
+    short = [(i in short_idx) for i in opt.idx_map]
+    long = [(i in long_idx) for i in opt.idx_map]
+
+    fig, ax = plt.subplots()
+    x = opt.concat.eval(session=opt.sess)
+    plt.plot(opt.idx, x)
+
+    try:
+        xtr = opt.idx.get_indexer(opt.extra_idx)
+        plt.plot(opt.extra_idx, x[xtr], 'ro')
+    except:
+        pass
+    try:
+        ax.axvline(np.array(opt.knots).astype(opt.time_units)[0], color = 'g')
+    except:
+        pass
+
+    for i in np.array(opt.idx_map)[short]:
+        plt.plot(opt.var.iloc[:, i].dropna())
+
+    for i in np.array(opt.idx_map)[long]:
+        plt.plot(opt.var.iloc[:, i].dropna(), 'k-')
+
+    bx = ax.twinx()
+    bx.plot(opt.idx[1:], opt.resid.eval(session=opt.sess), color='grey')
+
+    fig.show()

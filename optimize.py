@@ -65,7 +65,7 @@ class Optimizer(Reader):
                 short = tf.constant(self.var.short.fillna(0).values, self.tf_dtype, name='short') + self.offsets
                 long = tf.constant(self.var.long.fillna(0).values, self.tf_dtype, name='long')
                 self.tf_data = tf.concat((long, short), 1, name='data')
-            self.extra_var = tf.get_variable('extra', (self.var.shape[0], 1), self.tf_dtype,
+            self.extra_var = tf.get_variable('extra', (self.var.shape[0], ), self.tf_dtype,
                                              tf.constant_initializer(np.nanmean(self.var)))
             self.sess.run(tf.initialize_variables([self.offsets, self.extra_var]))
             self.walk()
@@ -119,12 +119,13 @@ class Optimizer(Reader):
         self.sess.run(tf.initialize_variables([ext]))
         return ext
 
-    def local_concat(self, start, stop):
+    def fuse(self, start, stop):
         i = self.order[:2]
         a, b, c, d = self.float_index.get_indexer(np.r_[start[i], stop[i]])
         
         # data = tf.gather(self.tf_data, i, axis=1)
         if b - c > 1: # if there's a gap
+            
             ext = self.add_variable(b, c)
             # self.concat = tf.concat((data[a: c+1, 0], ext, data[b: d+1, 1]), 0)
             self.seams.insert(0, self.order[:3])
@@ -162,16 +163,40 @@ class Optimizer(Reader):
 
     def walk(self):
         # needs to be called within a graph.as_default() context
-        stop = self.end_points.loc['stop'].values.astype(self.time_units).astype(float)
-        start = self.end_points.loc['start'].values.astype(self.time_units).astype(float)
-        self.indexes = [np.arange(*(self.float_index.get_indexer(i) + [0, 1]), dtype=np.int32) for i in zip(start, stop)]
+        # stop = self.end_points.loc['stop'].values.astype(self.time_units).astype(float)
+        # start = self.end_points.loc['start'].values.astype(self.time_units).astype(float)
 
-        D = self.distance(start, stop)
+        self.start = self.var.index.get_indexer(self.end_points.loc['start'])
+        self.stop = self.var.index.get_indexer(self.end_points.loc['stop'])
+        # self.indexes = [self.float_index.get_indexer(i) for i in zip(start, stop)]
+
+        D = self.distance(self.start, self.stop)
         _, p = csgraph.dijkstra(-D, return_predecessors=True)
-        first = start.argsort()[0]
-        self.order = [stop.argsort()[-1]]
+        first = self.start.argsort()[0]
+        self.order = [self.stop.argsort()[-1]]
+        self.extra_idx = []
+
+        k = 0
         while self.order[0] != first:
             self.order.insert(0, p[first, self.order[0]])
+            i = self.order[:2]
+            a, b = self.start[i]
+            c, d = self.stop[i]
+
+            if b - c > 1: # if there's a gap
+                self.concat = tf.concat((self.tf_data[a: c+1, i[0]],
+                                         self.extra_var[c+1: b],
+                                         self.tf_data[b: d+1, i[1]]), 0)
+                self.extra_idx = self.var.index[c+1: b] # NOTE: eventually, *extend*
+            else:
+                self.concat = tf.concat((self.tf_data[a: c+1, i[0]],
+                                         self.tf_data[b: d+1, i[1]]), 0)
+
+            self.idx = self.var.index[a: d+1]
+            self.resid = self.ar_resid(self.concat)
+
+            if k==0: break
+            k += 1
 
 
     def _old(self):

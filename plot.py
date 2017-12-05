@@ -157,10 +157,11 @@ def concat(optimizer):
     fig.show()
 
 def concat2(opt):
+    k = opt.order[:2]
     short_idx = opt.var.columns.droplevel(0).get_indexer(opt.var.short.columns)
     long_idx = opt.var.columns.droplevel(0).get_indexer(opt.var.long.columns)
-    short = [(i in short_idx) for i in opt.idx_map]
-    long = [(i in long_idx) for i in opt.idx_map]
+    short = [(i in short_idx) for i in k]
+    long = [(i in long_idx) for i in k]
 
     fig, ax = plt.subplots()
     x = opt.concat.eval(session=opt.sess)
@@ -171,15 +172,11 @@ def concat2(opt):
         plt.plot(opt.extra_idx, x[xtr], 'ro')
     except:
         pass
-    try:
-        ax.axvline(np.array(opt.knots).astype(opt.time_units)[0], color = 'g')
-    except:
-        pass
 
-    for i in np.array(opt.idx_map)[short]:
+    for i in np.array(k)[short]:
         plt.plot(opt.var.iloc[:, i].dropna())
 
-    for i in np.array(opt.idx_map)[long]:
+    for i in np.array(k)[long]:
         plt.plot(opt.var.iloc[:, i].dropna(), 'k-')
 
     bx = ax.twinx()

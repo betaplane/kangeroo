@@ -109,43 +109,6 @@ class Optimizer(Reader):
         D = np.abs(d)
         return np.where(D < D.T, d, d.T) + np.diag(np.repeat(-np.inf, len(start)))
 
-    def add_variable(self, b, c):
-        i = self.var.shape[1] + len(self.extra_vars)
-        self.order.insert(1, i)
-        ext = tf.get_variable('intp_{}'.format(i), (b - c - 1, ), self.tf_dtype,
-                          tf.constant_initializer(np.nanmean(self.var)))
-        self.extra_vars.append(ext)
-        self.extra_idx = self.var.index[c+1: b] # NOTE: eventually, needs to extend
-        self.sess.run(tf.initialize_variables([ext]))
-        return ext
-
-    def fuse(self, start, stop):
-        i = self.order[:2]
-        a, b, c, d = self.float_index.get_indexer(np.r_[start[i], stop[i]])
-        
-        # data = tf.gather(self.tf_data, i, axis=1)
-        if b - c > 1: # if there's a gap
-            
-            ext = self.add_variable(b, c)
-            # self.concat = tf.concat((data[a: c+1, 0], ext, data[b: d+1, 1]), 0)
-            self.seams.insert(0, self.order[:3])
-            self.knots.insert(0, sum(self.float_index[[b-1, b]]) / 2)
-            self.knots.insert(0, sum(self.float_index[[c, c+1]]) / 2)
-        else:
-            if b - c == 1: # if there's neither gap nor overlap
-                self.knots.insert(0, sum(self.float_index[[b, c]]) / 2)
-            else:
-                mid = (start[i] + stop[i]) / 2
-                self.knots.insert(0, (max(mid[0], start[i[1]]) + min(mid[1], stop[i[0]])) / 2)
-            # w = self.construct_weights(a, d, self.knots[0])
-            # concat = data[a: d+1, :]
-            # self.concat = tf.reduce_sum(concat * w, 1)
-            self.seams.insert(0, self.order[:2])
-
-        # resid = self.ar_resid(self.concat)
-        # self.ar_loss = tf.reduce_sum(self.resid ** 2)
-
-
     def ar_resid(self, concat):
         x0 = tf.reshape(concat[:-1], (-1, 1))
         x1 = tf.reshape(concat[1:], (-1, 1))
@@ -163,12 +126,9 @@ class Optimizer(Reader):
 
     def walk(self):
         # needs to be called within a graph.as_default() context
-        # stop = self.end_points.loc['stop'].values.astype(self.time_units).astype(float)
-        # start = self.end_points.loc['start'].values.astype(self.time_units).astype(float)
 
         self.start = self.var.index.get_indexer(self.end_points.loc['start'])
         self.stop = self.var.index.get_indexer(self.end_points.loc['stop'])
-        # self.indexes = [self.float_index.get_indexer(i) for i in zip(start, stop)]
 
         D = self.distance(self.start, self.stop)
         _, p = csgraph.dijkstra(-D, return_predecessors=True)
@@ -183,19 +143,23 @@ class Optimizer(Reader):
             a, b = self.start[i]
             c, d = self.stop[i]
 
+            # should always be the center (beginning of second in case of flush connection)
+            m = int(np.ceil((b + c) / 2))
             if b - c > 1: # if there's a gap
                 self.concat = tf.concat((self.tf_data[a: c+1, i[0]],
                                          self.extra_var[c+1: b],
                                          self.tf_data[b: d+1, i[1]]), 0)
                 self.extra_idx = self.var.index[c+1: b] # NOTE: eventually, *extend*
             else:
-                self.concat = tf.concat((self.tf_data[a: c+1, i[0]],
-                                         self.tf_data[b: d+1, i[1]]), 0)
+                self.concat = tf.concat((self.tf_data[a: m, i[0]], self.tf_data[m: d+1, i[1]]), 0)
 
             self.idx = self.var.index[a: d+1]
             self.resid = self.ar_resid(self.concat)
 
-            if k==0: break
+            m -= a # in current local coords
+            # k = np.where(self.resid)
+
+            if k==5: break
             k += 1
 
 

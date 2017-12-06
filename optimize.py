@@ -113,7 +113,7 @@ class Optimizer(Reader):
         x0 = tf.reshape(concat[:-1], (-1, 1))
         x1 = tf.reshape(concat[1:], (-1, 1))
         lsq = tf.matrix_solve_ls(x0, x1)
-        return x0 * lsq - x1
+        return tf.reshape(x0 * lsq - x1, (-1,))
 
     def optimize(self, loss, learn=0.1, n_iter=100):
         prog = tf.keras.utils.Progbar(n_iter)
@@ -124,7 +124,7 @@ class Optimizer(Reader):
                 _, l = self.sess.run([op, loss])
                 prog.update(i, [('Loss', l)])
 
-    def walk(self):
+    def walk(self, radius=100, thresh=6):
         # needs to be called within a graph.as_default() context
 
         self.start = self.var.index.get_indexer(self.end_points.loc['start'])
@@ -136,7 +136,7 @@ class Optimizer(Reader):
         self.order = [self.stop.argsort()[-1]]
         self.extra_idx = []
 
-        k = 0
+        s = 0
         while self.order[0] != first:
             self.order.insert(0, p[first, self.order[0]])
             i = self.order[:2]
@@ -157,33 +157,18 @@ class Optimizer(Reader):
             self.resid = self.ar_resid(self.concat)
 
             m -= a # in current local coords
-            # k = np.where(self.resid)
+            mask = np.zeros(self.resid.shape)
+            mask[max(0, m - radius): m + radius] = 1.
+            # NOTE: apparently it's ok if a slice goes beyond the end of an array
+            j = tf.where(tf.abs(self.resid * mask) > thresh * tf.keras.backend.std(self.resid))
+            k = j.eval(session=self.sess).flatten() + 1 - m
 
-            if k==5: break
-            k += 1
+            if len(k) > 0:
+                self.start[i[1]] = self.start[i[1]] + max(max(k), 0)
+                self.stop[i[0]] = self.stop[i[0]] + min(min(k), 0)
 
-
-    def _old(self):
-        self.idx_map = dict(zip(i, range(len(i))))
-        self.extra_idx = [self.idx_map[i] for i in range(self.var.shape[1], len(i))]
-
-        dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float) * 10
-        t = np.array(self.var.index, dtype=self.time_units, ndmin=2).T.astype(float) / dt
-        start = start.astype(self.time_units).astype(float) / dt
-        stop = stop.astype(self.time_units).astype(float) / dt
-        m = ((start + stop) / 2)[i]
-        self.k_init = (np.vstack((m[:-1], start[i[1:]])).max(0) + np.vstack((stop[i[:-1]], m[1:])).min(0)) / 2
-        self.k_lims = np.vstack((start[i[1:]], stop[i[:-1]]))
-        l = tf.reshape(tf.concat((tf.cast([start[first]], self.tf_dtype),
-                                  tf.reshape(tf.stack((self.knots, self.knots), 1), (-1,)),
-                                  tf.cast([stop[i[-1]]], self.tf_dtype)), 0), (-1, 2))
-
-    def construct_weights(self):
-        # self.knots = tf.get_variable('knots', (len(self.k_init),), self.tf_dtype, tf.constant_initializer(self.k_init))
-        l = np.r_[self.float_index[0] - self.dt, np.repeat(self.knots, 2), self.float_index[-1] + self.dt].reshape((-1, 2))
-        t = self.float_index.values
-        self.raw_weights = (t - l[:, :1]) * (t - l[:, 1:]) / (l[:, :1] - l[:, 1:])
-        self.weights = tf.nn.softmax(self.raw_weights[np.argsort(self.order), :].T)
+            if s==5: break
+            s += 1
 
 
     def setup(self, learn=0.01, logdir=None):

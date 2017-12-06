@@ -173,6 +173,8 @@ def concat2(opt):
     except:
         pass
 
+    plt.plot(opt.idx[opt.m], x[opt.m], 'xg')
+
     for i in np.array(k)[short]:
         plt.plot(opt.var.iloc[:, i].dropna())
 

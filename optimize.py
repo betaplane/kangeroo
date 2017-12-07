@@ -124,7 +124,7 @@ class Optimizer(Reader):
                 _, l = self.sess.run([op, loss])
                 prog.update(i, [('Loss', l)])
 
-    def walk(self, radius=100, thresh=6):
+    def walk(self, radius=100, thresh=20):
         # needs to be called within a graph.as_default() context
 
         self.start = self.var.index.get_indexer(self.end_points.loc['start'])
@@ -134,7 +134,6 @@ class Optimizer(Reader):
         _, p = csgraph.dijkstra(-D, return_predecessors=True)
         first = self.start.argsort()[0]
         self.order = [self.stop.argsort()[-1]]
-        self.extra_idx = []
 
         s = 0
         while self.order[0] != first:
@@ -146,15 +145,16 @@ class Optimizer(Reader):
             # should always be the center (beginning of second in case of flush connection)
             m = int(np.ceil((b + c) / 2))
             if b - c > 1: # if there's a gap
-                self.concat = tf.concat((self.tf_data[a: c+1, i[0]],
+                concat = tf.concat((self.tf_data[a: c+1, i[0]],
                                          self.extra_var[c+1: b],
                                          self.tf_data[b: d+1, i[1]]), 0)
-                self.extra_idx = self.var.index[c+1: b] # NOTE: eventually, *extend*
             else:
-                self.concat = tf.concat((self.tf_data[a: m, i[0]], self.tf_data[m: d+1, i[1]]), 0)
+                concat = tf.concat((self.tf_data[a: m, i[0]], self.tf_data[m: d+1, i[1]]), 0)
+                self.start[i[1]] = m
+                self.stop[i[0]] = m - 1
 
             self.idx = self.var.index[a: d+1]
-            self.resid = self.ar_resid(self.concat)
+            self.resid = self.ar_resid(concat)
 
             m -= a # in current local coords
             mask = np.zeros(self.resid.shape)
@@ -167,8 +167,25 @@ class Optimizer(Reader):
                 self.start[i[1]] = self.start[i[1]] + max(max(k), 0)
                 self.stop[i[0]] = self.stop[i[0]] + min(min(k), 0)
 
-            if s==5: break
-            s += 1
+            self.m = m
+            # if s==5: break
+            # s += 1
+
+    @property
+    def concat(self):
+        idx = [np.arange(*z) for z in zip(self.start, self.stop)]
+        data = [tf.gather(self.tf_data[:, i], j) for i, j in enumerate(idx)]
+        k = self.extra_idx
+        idx.append(k)
+        data.append(tf.gather(self.extra_var, k))
+        return tf.dynamic_stitch(idx, data)
+
+    @property
+    def extra_idx(self):
+        a = self.start[self.order[1:]]
+        b = self.stop[self.order[:-1]] + 1
+        d = (a > b)
+        return np.hstack(np.arange(*z) for z in zip(b[d], a[d]))
 
 
     def setup(self, learn=0.01, logdir=None):

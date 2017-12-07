@@ -116,44 +116,36 @@ class Plots(object):
             return p[0]
 
 
-def concat(optimizer):
+def concat(opt):
     fig, ax = plt.subplots()
-    x = optimizer.concat.eval(session=optimizer.sess)
-    idx = optimizer.var.index
+    x = opt.concat.eval(session=opt.sess)
+    idx = opt.var.index
     plt.plot(idx, x)
 
+    xtr = opt.extra_idx
+    plt.plot(idx[xtr], x[xtr], 'ro')
+
     short = optimizer.var.short
-    short_idx = optimizer.var.columns.droplevel(0).get_indexer(short.columns)
-    short_idx = [optimizer.idx_map[i] for i in short_idx]
-    extra_idx = [optimizer.idx_map[i] for i in range(optimizer.var.shape[1], optimizer.weights.shape[1])]
-
-    # NOTE: weights are in 'chain' order, whereas 'var.short' is in the order returned from :meth:`.LogFrame.organize_time`
-    # weights = optimizer.weights.eval(session=optimizer.sess)[:, np.argsort(optimizer.chain)][:, short_idx]
-    weights = optimizer.weights.eval(session=optimizer.sess)
-    w = weights[:, short_idx]
-    u = np.where(weights[:, optimizer.extra_idx])[0]
-
-    plt.plot(idx[u], x[u], 'ro')
-
     fn = short.columns.names.index('filename')
     height = short.shape[1]
 
-    for i, l in enumerate(optimizer.var.long.iteritems()):
-        plt.plot(l[1].dropna(), 'k-')
+    j = 0
+    for i, c in enumerate(opt.var.iteritems()):
+        if c[0][0] == 'long':
+            plt.plot(c[1].dropna(), 'k-')
+        else:
+            y = c[1].dropna()
+            start_t = y.index[0]
+            p = plt.plot(y)[0]
 
-    for i, s in enumerate(short.iteritems()):
-        x = s[1].dropna()
-        start_t = x.index[0]
-        p = plt.plot(x)[0]
+            ax.axvspan(opt.start[i], opt.stop[i], alpha=.4, facecolor=p.get_color())
 
-        k = idx[w[:, i].astype(bool)]
-        ax.axvspan(k.min(), k.max(), alpha=.4, facecolor=p.get_color())
-
-        ax.annotate(s[0][fn], xy=(start_t, 1 - (1 + i) / height),
-                    xycoords=('data', 'axes fraction'), color=p.get_color())
+            ax.annotate(c[0][fn], xy=(start_t, 1 - (1 + j) / height),
+                        xycoords=('data', 'axes fraction'), color=p.get_color())
+            j += 1
 
     bx = ax.twinx()
-    bx.plot(optimizer.var.index[1:], optimizer.resid.eval(session=optimizer.sess), color='grey', alpha=.5)
+    bx.plot(opt.var.index[1:], opt.resid.eval(session=opt.sess), color='grey', alpha=.5)
     fig.show()
 
 def concat2(opt):
@@ -164,16 +156,23 @@ def concat2(opt):
     long = [(i in long_idx) for i in k]
 
     fig, ax = plt.subplots()
-    x = opt.concat.eval(session=opt.sess)
-    plt.plot(opt.idx, x)
 
-    try:
-        xtr = opt.idx.get_indexer(opt.extra_idx)
-        plt.plot(opt.extra_idx, x[xtr], 'ro')
-    except:
-        pass
+    j = opt.extra_idx
+    j = j[(j >= opt.start[k[0]]) & (j <= opt.stop[k[1]])]
 
-    plt.plot(opt.idx[opt.m], x[opt.m], 'xg')
+    a, b = opt.start[k]
+    c, d = opt.stop[k]
+    if len(j) > 0:
+        xtr = opt.extra_var.eval(session=opt.sess)[j]
+        x = np.hstack((opt.var.iloc[a: c+1, k[0]], xtr, opt.var.iloc[b: d+1, k[1]]))
+        plt.plot(opt.idx, x)
+        plt.plot(opt.idx[j - opt.start[k[0]]], xtr, 'ro')
+    else:
+        x = np.hstack((opt.var.iloc[a: c+1, k[0]], opt.var.iloc[b: d+1, k[1]]))
+        plt.plot(opt.idx, x)
+
+
+    ax.axvline(opt.idx[opt.m], color='green')
 
     for i in np.array(k)[short]:
         plt.plot(opt.var.iloc[:, i].dropna())

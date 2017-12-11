@@ -1,10 +1,10 @@
-.. darc documentation master file, created by
+.. kangeroo documentation master file, created by
    sphinx-quickstart on Fri Oct 27 16:40:53 2017.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to darc's documentation!
-================================
+Welcome to kangeroo's documentation!
+====================================
 
 .. toctree::
    :maxdepth: 2
@@ -12,24 +12,28 @@ Welcome to darc's documentation!
 
 Database
 --------
-.. automodule:: darc.database
+.. automodule:: kangeroo.database
    :members:
 
 Reading Log Files
 -----------------
-.. automodule:: darc.core
+.. automodule:: kangeroo.core
    :members:
 
 Concatenation
 -------------
-.. automodule:: darc.optimize
+.. automodule:: kangeroo.optimize
    :members:
 
 Plotting
 --------
-.. automodule:: darc.plot
+.. automodule:: kangeroo.plot
    :members:
 
+B-splines
+---------
+.. automodule:: kangeroo.bspline
+   :members:
 
 .. _TensorFlow: https://www.tensorflow.org/api_docs/
 

@@ -26,8 +26,7 @@ import tensorflow as tf
 from datetime import datetime
 from scipy.sparse import csgraph
 import os
-from .core import *
-
+from .core import Reader
 
 
 class Optimizer(Reader):
@@ -47,8 +46,6 @@ class Optimizer(Reader):
 
         # only self.var is sorted correctly, i.e. in the same way as self.columns and self.tf_data
         self.var = var.resample('30T').asfreq().organize_time()
-        self.float_index = pd.Index(self.var.index.values.astype(self.time_units).astype(float))
-        self.dt = self.var.index.freq.delta.asm8.astype(self.time_delta).astype(float) * 10
 
         # just so it isn't recomputed every time (it's a @property)
         self.end_points = self.var.end_points
@@ -74,7 +71,6 @@ class Optimizer(Reader):
             subdir = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
             self.tb_writer = tf.summary.FileWriter(os.path.join(logdir, subdir), graph=self.graph)
             self.tb_writer.flush()
-
 
     def overlap_and_contained(self):
         """Returns symmetric matrix of which series overlap with each other:
@@ -115,17 +111,20 @@ class Optimizer(Reader):
         lsq = tf.matrix_solve_ls(x0, x1)
         return tf.reshape(x0 * lsq - x1, (-1,))
 
-    def optimize(self, loss, learn=0.1, n_iter=100):
+    def optimize(self, learn=0.1, n_iter=100):
         prog = tf.keras.utils.Progbar(n_iter)
         with self.graph.as_default():
-            op = tf.train.AdamOptimizer(learn).minimize(loss)
+            op = tf.train.AdamOptimizer(learn).minimize(self.loss)
             tf.global_variables_initializer().run(session=self.sess)
             for i in range(n_iter):
-                _, l = self.sess.run([op, loss])
+                _, l = self.sess.run([op, self.loss])
                 prog.update(i, [('Loss', l)])
 
-    def walk(self, radius=100, thresh=20):
+
+    def walk(self, radius=100, thresh=15):
         # needs to be called within a graph.as_default() context
+
+        filenames = self.var.columns.get_level_values('filename')
 
         self.start = self.var.index.get_indexer(self.end_points.loc['start'])
         self.stop = self.var.index.get_indexer(self.end_points.loc['stop'])
@@ -134,6 +133,8 @@ class Optimizer(Reader):
         _, p = csgraph.dijkstra(-D, return_predecessors=True)
         first = self.start.argsort()[0]
         self.order = [self.stop.argsort()[-1]]
+        self.knots = []
+        losses = []
 
         s = 0
         while self.order[0] != first:
@@ -144,36 +145,50 @@ class Optimizer(Reader):
 
             # should always be the center (beginning of second in case of flush connection)
             m = int(np.ceil((b + c) / 2))
-            if b - c > 1: # if there's a gap
+            self.knots.insert(0, m)
+
+            # if there's a gap or a flush connection
+            if b - c > 0:
                 concat = tf.concat((self.tf_data[a: c+1, i[0]],
                                          self.extra_var[c+1: b],
                                          self.tf_data[b: d+1, i[1]]), 0)
+
+                m -= a # in current local coords
+                resid = self.ar_resid(concat)
+                mask = np.zeros(resid.shape)
+                mask[max(0, m - radius): m + radius] = 1.
+                loss = resid * mask
+
+                # self.idx = self.var.index[a: d+1]
+                # # NOTE: apparently it's ok if a slice goes beyond the end of an array
+                # j = tf.where(tf.abs(self.resid * mask) > thresh * tf.keras.backend.std(self.resid))
+                # k = j.eval(session=self.sess).flatten() + 1 - m
+
+                # if len(k) > 0:
+                #     self.start[i[1]] = self.start[i[1]] + max(max(k), 0)
+                #     self.stop[i[0]] = self.stop[i[0]] + min(min(k), 0)
+
             else:
+                loss = self.tf_data[b: c+1, i[0]] - self.tf_data[b: c+1, i[1]]
+                # print('searching overlap between files {} and {}'.format(*filenames[i]))
+                # for j in range(b, c):
+                #     concat = tf.concat((self.tf_data[a: j, i[0]], self.tf_data[j: d+1, i[1]]), 0)
+                #     resid.append(tf.reduce_sum(self.ar_resid(concat) ** 2))
+                # m = b + tf.argmin(resid).eval(session=self.sess)
                 concat = tf.concat((self.tf_data[a: m, i[0]], self.tf_data[m: d+1, i[1]]), 0)
                 self.start[i[1]] = m
                 self.stop[i[0]] = m - 1
 
-            self.idx = self.var.index[a: d+1]
-            self.resid = self.ar_resid(concat)
+            losses.append(loss ** 2)
 
-            m -= a # in current local coords
-            mask = np.zeros(self.resid.shape)
-            mask[max(0, m - radius): m + radius] = 1.
-            # NOTE: apparently it's ok if a slice goes beyond the end of an array
-            j = tf.where(tf.abs(self.resid * mask) > thresh * tf.keras.backend.std(self.resid))
-            k = j.eval(session=self.sess).flatten() + 1 - m
+            if s==4: break
+            s += 1
 
-            if len(k) > 0:
-                self.start[i[1]] = self.start[i[1]] + max(max(k), 0)
-                self.stop[i[0]] = self.stop[i[0]] + min(min(k), 0)
-
-            self.m = m
-            # if s==5: break
-            # s += 1
+        self.loss = tf.concat(losses, 0)
 
     @property
     def concat(self):
-        idx = [np.arange(*z) for z in zip(self.start, self.stop)]
+        idx = [np.arange(a, b+1) for a, b in zip(self.start, self.stop)]
         data = [tf.gather(self.tf_data[:, i], j) for i, j in enumerate(idx)]
         k = self.extra_idx
         idx.append(k)

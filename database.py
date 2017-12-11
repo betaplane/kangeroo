@@ -59,8 +59,8 @@ class DB(object):
         """Reconstruct a concatenation saved in the databarc database.
 
         :param out_id: The ``field_id`` of the (concatenated / 'output') field whose concatenation should be reconstructed
-        :returns: A concatenation DataFrame of the format as constructed by the :mod:`pandas`-based part of this module (:class:`~darc.files.Log`)
-        :rtype: :class:`~pandas.DataFrame` with :class:`~pandas.MultiIndex` of the same characteristics as those used by :class:`~darc.files.Log`
+        :returns: A concatenation DataFrame of the format as constructed by the :mod:`pandas`-based part of this module (:class:`~kangeroo.files.Log`)
+        :rtype: :class:`~pandas.DataFrame` with :class:`~pandas.MultiIndex` of the same characteristics as those used by :class:`~kangeroo.files.Log`
 
         """
         print('concatenating {}'.format(self.field.loc[out_id]['name']))

@@ -125,9 +125,8 @@ def concat(opt):
     xtr = opt.extra_idx
     plt.plot(idx[xtr], x[xtr], 'ro')
 
-    short = optimizer.var.short
-    fn = short.columns.names.index('filename')
-    height = short.shape[1]
+    fn = opt.var.columns.names.index('filename')
+    height = opt.var.short.shape[1]
 
     j = 0
     for i, c in enumerate(opt.var.iteritems()):
@@ -138,14 +137,19 @@ def concat(opt):
             start_t = y.index[0]
             p = plt.plot(y)[0]
 
-            ax.axvspan(opt.start[i], opt.stop[i], alpha=.4, facecolor=p.get_color())
+            ax.axvspan(idx[opt.start[i]], idx[opt.stop[i]], alpha=.4, facecolor=p.get_color())
 
             ax.annotate(c[0][fn], xy=(start_t, 1 - (1 + j) / height),
                         xycoords=('data', 'axes fraction'), color=p.get_color())
             j += 1
 
+    for k in opt.knots:
+        ax.axvline(idx[k], color='g')
+
+    resid = opt.ar_resid(opt.concat).eval(session=opt.sess)
     bx = ax.twinx()
-    bx.plot(opt.var.index[1:], opt.resid.eval(session=opt.sess), color='grey', alpha=.5)
+    bx.plot(idx[1:], resid, color='grey', alpha=.5)
+
     fig.show()
 
 def concat2(opt):
@@ -157,19 +161,20 @@ def concat2(opt):
 
     fig, ax = plt.subplots()
 
-    j = opt.extra_idx
-    j = j[(j >= opt.start[k[0]]) & (j <= opt.stop[k[1]])]
-
     a, b = opt.start[k]
     c, d = opt.stop[k]
+    idx = opt.var.index[a: d+1]
+    j = opt.extra_idx
+    j = j[(j >= a) & (j <= d)]
+
     if len(j) > 0:
         xtr = opt.extra_var.eval(session=opt.sess)[j]
         x = np.hstack((opt.var.iloc[a: c+1, k[0]], xtr, opt.var.iloc[b: d+1, k[1]]))
-        plt.plot(opt.idx, x)
-        plt.plot(opt.idx[j - opt.start[k[0]]], xtr, 'ro')
+        plt.plot(idx, x)
+        plt.plot(idx[j - a], xtr, 'ro')
     else:
         x = np.hstack((opt.var.iloc[a: c+1, k[0]], opt.var.iloc[b: d+1, k[1]]))
-        plt.plot(opt.idx, x)
+        plt.plot(idx, x)
 
 
     ax.axvline(opt.idx[opt.m], color='green')

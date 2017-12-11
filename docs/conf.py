@@ -35,7 +35,8 @@ extensions = ['sphinx.ext.autodoc',
     'sphinx.ext.todo',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
-    'sphinx.ext.githubpages']
+    'sphinx.ext.githubpages',
+    'sphinxcontrib.bibtex']
 
 from unittest.mock import MagicMock
 class Mock(MagicMock):
@@ -43,8 +44,8 @@ class Mock(MagicMock):
     def __getattr__(cls, name):
         return MagicMock()
 
-autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'tensorflow', 'statsmodels.tsa', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.patches']
-sys.modules.update((n, Mock) for n in autodoc_mock_imports)
+autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'scipy', 'tensorflow', 'statsmodels.tsa', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.patches']
+sys.modules.update((n, Mock()) for n in autodoc_mock_imports)
 
 
 # Add any paths that contain templates here, relative to this directory.
@@ -60,7 +61,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'darc'
+project = u'kangeroo'
 copyright = u'2017, Arno C. Hammann'
 author = u'Arno C. Hammann'
 
@@ -114,7 +115,7 @@ html_static_path = ['_static']
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'darcdoc'
+htmlhelp_basename = 'kangeroodoc'
 
 
 # -- Options for LaTeX output ---------------------------------------------
@@ -141,7 +142,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'darc.tex', u'darc Documentation',
+    (master_doc, 'kangeroo.tex', u'kangeroo Documentation',
      u'Arno C. Hammann', 'manual'),
 ]
 
@@ -151,7 +152,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'darc', u'darc Documentation',
+    (master_doc, 'kangeroo', u'kangeroo Documentation',
      [author], 1)
 ]
 
@@ -162,8 +163,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'darc', u'darc Documentation',
-     author, 'darc', 'One line description of project.',
+    (master_doc, 'kangeroo', u'kangeroo Documentation',
+     author, 'kangeroo', 'One line description of project.',
      'Miscellaneous'),
 ]
 

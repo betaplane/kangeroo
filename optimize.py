@@ -53,24 +53,7 @@ class Optimizer(Reader):
         # self.start_sorted = self.var.columns.get_indexer(self.end_points.loc['start'].sort_values().index)
         # self.end_sorted = self.var.columns.get_indexer(self.end_points.loc['stop'].sort_values().index)
 
-        self.graph = tf.Graph()
-        self.sess = tf.Session(graph=self.graph)
-        with self.graph.as_default():
-            with tf.variable_scope('data'):
-                self.offsets = tf.get_variable('offsets', (1, self.var.short.shape[1]), self.tf_dtype,
-                                               tf.zeros_initializer)
-                short = tf.constant(self.var.short.fillna(0).values, self.tf_dtype, name='short') + self.offsets
-                long = tf.constant(self.var.long.fillna(0).values, self.tf_dtype, name='long')
-                self.tf_data = tf.concat((long, short), 1, name='data')
-            self.extra_var = tf.get_variable('extra', (self.var.shape[0], ), self.tf_dtype,
-                                             tf.constant_initializer(np.nanmean(self.var)))
-            self.sess.run(tf.initialize_variables([self.offsets, self.extra_var]))
-            self.walk()
-
-        if logdir is not None:
-            subdir = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-            self.tb_writer = tf.summary.FileWriter(os.path.join(logdir, subdir), graph=self.graph)
-            self.tb_writer.flush()
+        self.traverse()
 
     def overlap_and_contained(self):
         """Returns symmetric matrix of which series overlap with each other:
@@ -121,7 +104,7 @@ class Optimizer(Reader):
                 prog.update(i, [('Loss', l)])
 
 
-    def walk(self, radius=100, thresh=15):
+    def traverse(self, radius=100, thresh=15):
         # needs to be called within a graph.as_default() context
 
         filenames = self.var.columns.get_level_values('filename')
@@ -149,25 +132,7 @@ class Optimizer(Reader):
 
             # if there's a gap or a flush connection
             if b - c > 0:
-                concat = tf.concat((self.tf_data[a: c+1, i[0]],
-                                         self.extra_var[c+1: b],
-                                         self.tf_data[b: d+1, i[1]]), 0)
-
-                m -= a # in current local coords
-                resid = self.ar_resid(concat)
-                mask = np.zeros(resid.shape)
-                mask[max(0, m - radius): m + radius] = 1.
-                loss = resid * mask
-
-                # self.idx = self.var.index[a: d+1]
-                # # NOTE: apparently it's ok if a slice goes beyond the end of an array
-                # j = tf.where(tf.abs(self.resid * mask) > thresh * tf.keras.backend.std(self.resid))
-                # k = j.eval(session=self.sess).flatten() + 1 - m
-
-                # if len(k) > 0:
-                #     self.start[i[1]] = self.start[i[1]] + max(max(k), 0)
-                #     self.stop[i[0]] = self.stop[i[0]] + min(min(k), 0)
-
+                
             else:
                 loss = self.tf_data[b: c+1, i[0]] - self.tf_data[b: c+1, i[1]]
                 # print('searching overlap between files {} and {}'.format(*filenames[i]))

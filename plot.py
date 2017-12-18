@@ -116,20 +116,18 @@ class Plots(object):
             return p[0]
 
 
-def concat(opt):
+def concat(cc):
     fig, ax = plt.subplots()
-    x = opt.concat.eval(session=opt.sess)
-    idx = opt.var.index
-    plt.plot(idx, x)
+    idx = cc.var.index
+    plt.plot(idx, cc.var['concat'])
+    plt.plot(idx, cc.var['extra'], 'rx-')
 
-    xtr = opt.extra_idx
-    plt.plot(idx[xtr], x[xtr], 'ro')
-
-    fn = opt.var.columns.names.index('filename')
-    height = opt.var.short.shape[1]
+    fn = cc.var.columns.names.index('filename')
+    height = cc.var.short.shape[1]
 
     j = 0
-    for i, c in enumerate(opt.var.iteritems()):
+    var = cc.var.drop(['extra', 'concat', 'resid', 'outliers'], 1)
+    for i, c in enumerate(var.iteritems()):
         if c[0][0] == 'long':
             plt.plot(c[1].dropna(), 'k-')
         else:
@@ -137,55 +135,30 @@ def concat(opt):
             start_t = y.index[0]
             p = plt.plot(y)[0]
 
-            ax.axvspan(idx[opt.start[i]], idx[opt.stop[i]], alpha=.4, facecolor=p.get_color())
+            ax.axvspan(idx[cc.start[i]], idx[cc.stop[i]], alpha=.4, facecolor=p.get_color())
 
             ax.annotate(c[0][fn], xy=(start_t, 1 - (1 + j) / height),
                         xycoords=('data', 'axes fraction'), color=p.get_color())
             j += 1
 
-    for k in opt.knots:
+    for k in cc.knots:
         ax.axvline(idx[k], color='g')
 
-    resid = opt.ar_resid(opt.concat).eval(session=opt.sess)
-    bx = ax.twinx()
-    bx.plot(idx[1:], resid, color='grey', alpha=.5)
+    # bx = ax.twinx()
+    # resid = cc.var['resid']
+    # bx.plot(idx, resid , color='r')
+    # i = np.where(np.abs(resid) > 6 * resid.std())[0]
+    outliers = cc.var['concat'][cc.var['outliers'].notnull()]
+    ax.plot(outliers.where(outliers.notnull(), cc.var['extra']), 'mo')
 
     fig.show()
 
-def concat2(opt):
-    k = opt.order[:2]
-    short_idx = opt.var.columns.droplevel(0).get_indexer(opt.var.short.columns)
-    long_idx = opt.var.columns.droplevel(0).get_indexer(opt.var.long.columns)
-    short = [(i in short_idx) for i in k]
-    long = [(i in long_idx) for i in k]
 
+def files(x):
     fig, ax = plt.subplots()
 
-    a, b = opt.start[k]
-    c, d = opt.stop[k]
-    idx = opt.var.index[a: d+1]
-    j = opt.extra_idx
-    j = j[(j >= a) & (j <= d)]
+    fn = x.index.names.index('filename')
 
-    if len(j) > 0:
-        xtr = opt.extra_var.eval(session=opt.sess)[j]
-        x = np.hstack((opt.var.iloc[a: c+1, k[0]], xtr, opt.var.iloc[b: d+1, k[1]]))
-        plt.plot(idx, x)
-        plt.plot(idx[j - a], xtr, 'ro')
-    else:
-        x = np.hstack((opt.var.iloc[a: c+1, k[0]], opt.var.iloc[b: d+1, k[1]]))
-        plt.plot(idx, x)
-
-
-    ax.axvline(opt.idx[opt.m], color='green')
-
-    for i in np.array(k)[short]:
-        plt.plot(opt.var.iloc[:, i].dropna())
-
-    for i in np.array(k)[long]:
-        plt.plot(opt.var.iloc[:, i].dropna(), 'k-')
-
-    bx = ax.twinx()
-    bx.plot(opt.idx[1:], opt.resid.eval(session=opt.sess), color='grey')
-
-    fig.show()
+    for i, r in x.iterrows():
+        ax.scatter(r[0], r[1])
+        ax.annotate(i[fn], xy=r)

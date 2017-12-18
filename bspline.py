@@ -1,15 +1,15 @@
 import numpy as np
 
 
-class BSpline(object):
+class Bspline(object):
     """
-Class to construce smoothing splines in a B-spline basis. See :cite:`eilers_flexible_1996`, :cite:`hastie_elements_2001`.
+Class to construct regression or smoothing splines in a B-spline basis. See :cite:`eilers_flexible_1996`, :cite:`hastie_elements_2001`. If a smoothing spline is desired, only one vector of locations is to be passed to the constructor (since a knot is placed at every data location), otherwise a vector of knots also has to be passed, with a length < that of the location vector.
 
 **Notes:**
 
     * The difference matrix is currently hardcoded to second order, equivalent to a penalization of the second derivative of the spline.
     * I'm augmenting the knot sequence with integer sequences beyond the two boundary knots. Should be checked if that works.
-    * Also check treatment of boundary knots. Maybe have 'locs' be only interior ones.
+    * Also check treatment of boundary knots.
 
 :param locs: Vector of values at which to evaluate the B-spline basis functions.
 :type locs: :obj:`list` or :class:`~numpy.ndarray`
@@ -38,8 +38,7 @@ Class to construce smoothing splines in a B-spline basis. See :cite:`eilers_flex
 
     @property
     def diff2(self):
-        #         K = len(t)
-the first two elements of D * vector are nixed because it's second order differences
+        # the first two elements of D * vector are nixed because it's second order differences
         o = np.ones(self.basis.shape[1] - 2)
         return np.diag(np.r_[0, 0, o]) - 2 * np.diag(np.r_[0, o], -1) + np.diag(o, -2)
 
@@ -56,13 +55,13 @@ the first two elements of D * vector are nixed because it's second order differe
         """
         x = np.asarray(y).reshape((-1, 1))
         i = np.isfinite(x).flatten()
+        x = x[i]
         B = self.basis[i, :]
-        b = B.T.dot(x[i, :])
-        A = B.T.dot(B)
         if l is not None:
-            D = self.diff2
-            A = A + l * D.T.dot(D)
-        return self.basis.dot(np.linalg.lstsq(A, b)[0])
+            D = self.diff2[2:, :]
+            B = np.r_['0', B, l * D]
+            x = np.pad(x, ((0, D.shape[0]), (0, 0)), 'constant')
+        self.spline = self.basis.dot(np.linalg.lstsq(B, x)[0])
 
     def fit_df(self, y, l):
         """This uses the smoothing matrix (S) formulation, whose trace is the definition of the effective number of degrees of freedom. Otherwise the same as :meth:`.smooth`.
@@ -75,35 +74,32 @@ the first two elements of D * vector are nixed because it's second order differe
         print(tf.trace(S).eval())
         return tf.matmul(S, b.reshape((-1, 1)))
 
-    def fit2(self, y1, y2, offset, l=None):
-        """Fit a regression or smoothing spline consisting of two pieces of which one may be offset by an additive constant with respect to the other one. The offset is accessible as :attr:`.offset` attribute, the fitted spline as :attr:`.spline`.
+    def fit2(self, y1, y2, l=None):
+        """Fit a regression or smoothing spline consisting of two pieces which may be offset by an additive constant with respect to each other. The offset is accessible as :attr:`.offset` attribute, the fitted spline as :attr:`.spline`. The second one is assumed to be the offset one; if the truely offset one is the first one, the value of the computed offset simply needs to be negated.
 
         :param y1: First vector of data values.
         :type y1: :obj:`list` or :class:`~numpy.ndarray`
-        :param y2: Second vector of data values.
+        :param y2: Second vector of data values. (This vector is assumed to be offset.)
         :type y2: :obj:`list` or :class:`~numpy.ndarray`
-        :param offset: Which of the two pieces (0 or 1 corresponding to first or second one) is offset.
         :param l: Penalty parameter for the smoothing (denoted :math:`\lambda` by :cite:`eilers_flexible_1996`, :cite:`hastie_elements_2001`). If ``None``, a regression spline is fit, otherwise a smoothing spline.
         :type l: :obj:`float` or :obj:`None`
 
         """
-        z1 = np.ones_like(y1).flatten() * (1 - offset)
-        z2 = np.ones_like(y2).flatten() * offset
+        z1 = np.zeros_like(y1).flatten()
+        z2 = np.ones_like(y2).flatten()
         y = np.hstack((np.asarray(y1).flatten(), np.asarray(y2).flatten()))
         i = np.isfinite(y)
-        y = y[i].reshape((-1, 1))
+        x = y[i].reshape((-1, 1))
         z = np.hstack((z1, z2))
         B = np.r_['1', self.basis, z.reshape((-1, 1))][i, :]
-        b = B.T.dot(y)
-        Q = np.zeros(B.shape).T
-        Q[-1, :] = z[i]
-        A = B.T.dot(B) + np.eye(B.shape[1]) - Q.dot(np.pad(self.basis[i, :], ((0, 0), (0, 1)), 'constant'))
         if l is not None:
-            D = self.diff2
-            A = A + l * np.pad(D.T.dot(D), ((0, 1), (0, 1)), 'constant')
-        s = np.linalg.lstsq(A, b)
-        self.offset = s[0][-1]
-        self.spline = self.basis.dot(s[0][:-1])
+            D = np.pad(self.diff2, ((0, 0), (0, 1)), 'constant')
+            B = np.r_['0', B, l * D]
+            x = np.pad(x, ((0, self.basis.shape[1]), (0, 0)), 'constant')
+        s = np.linalg.lstsq(B, x)[0]
+        self.offset = s[-1].item()
+        self.spline = self.basis.dot(s[:-1]).flatten()
+        self.resid = y - z * self.offset - self.spline
 
     def set_df(self, df, learn=0.01, n_iter=100):
         """TensorFlow_-based optimization routine to compute :math:`\lambda` from effective number of degrees of freedom.
@@ -124,15 +120,14 @@ the first two elements of D * vector are nixed because it's second order differe
                 _, l = self.sess.run([op, loss])
                 prog.update(i, [('Loss', l)])
 
-
 if __name__=="__main__":
     x = np.linspace(0, 1, 100)
     f = np.sin(12 * (x + .2)) / (x + .2)
     f[49:51] = np.nan
-    y1 = f[:50]
-    y2 = f[50:] + 2
+    y1 = f[:50]# + np.random.randn(50)
+    y2 = f[50:] + 2# + np.random.randn(50)
     y = np.hstack((y1, y2))
-    # b = BSpline(x)
+    b = Bspline(x)
     # b.fit2(y1, y2, 1, .1)
-    b = BSpline(x, x[::10])
-    b.fit2(y1, y2, 1)
+    # b = Bspline(x, x[::10])
+    # b.fit2(y1, y2, 1)

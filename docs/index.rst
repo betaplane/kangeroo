@@ -22,7 +22,7 @@ Reading Log Files
 
 Concatenation
 -------------
-.. automodule:: kangeroo.optimize
+.. automodule:: kangeroo.concat
    :members:
 
 Plotting

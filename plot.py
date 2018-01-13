@@ -119,15 +119,15 @@ class Plots(object):
 def concat(cc):
     fig, ax = plt.subplots()
     idx = cc.var.index
-    plt.plot(idx, cc.var['concat'])
-    plt.plot(idx, cc.var['extra'], 'rx-')
+    plt.plot(idx, cc.concat['concat'])
+    plt.plot(idx, cc.concat['extra'], 'rx-')
 
     fn = cc.var.columns.names.index('filename')
     height = cc.var.short.shape[1]
+    o = cc.concat['outliers']
 
     j = 0
-    var = cc.var.drop(['extra', 'concat', 'resid', 'outliers'], 1)
-    for i, c in enumerate(var.iteritems()):
+    for i, c in enumerate(cc.var.iteritems()):
         if c[0][0] == 'long':
             plt.plot(c[1].dropna(), 'k-')
         else:
@@ -135,11 +135,12 @@ def concat(cc):
             start_t = y.index[0]
             p = plt.plot(y)[0]
 
-            ax.axvspan(idx[cc.start[i]], idx[cc.stop[i]], alpha=.4, facecolor=p.get_color())
+            ax.axvspan(idx[cc.starts[i]], idx[cc.ends[i]], alpha=.4, facecolor=p.get_color())
 
             ax.annotate(c[0][fn], xy=(start_t, 1 - (1 + j) / height),
                         xycoords=('data', 'axes fraction'), color=p.get_color())
             j += 1
+        plt.plot(c[1][o == -2], 'mo')
 
     for k in cc.knots:
         ax.axvline(idx[k], color='g')
@@ -148,8 +149,8 @@ def concat(cc):
     # resid = cc.var['resid']
     # bx.plot(idx, resid , color='r')
     # i = np.where(np.abs(resid) > 6 * resid.std())[0]
-    outliers = cc.var['concat'][cc.var['outliers'].notnull()]
-    ax.plot(outliers.where(outliers.notnull(), cc.var['extra']), 'mo')
+    outliers = cc.concat['concat'][o == -1]
+    ax.plot(outliers.where(outliers.notnull(), cc.concat['extra']), 'mo')
 
     fig.show()
 

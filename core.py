@@ -50,15 +50,15 @@ class LogFrame(pd.DataFrame):
 
     @property
     def end_points(self):
-        def get_start_stop(col):
+        def get_start_end(col):
             x = col.dropna()
-            return pd.Series((x.index.min(), x.index.max()), index=['start', 'stop'])
+            return pd.Series((x.index.min(), x.index.max()), index=['start', 'end'])
 
-        return self.data.apply(get_start_stop)
+        return self.data.apply(get_start_end)
 
     @property
     def time_ranges(self):
-        """Return a list of ranges (start, stop) of the data that have been used in a concatenation, as reconstructed from one columns of a LogFrame of (1, 0) flags. The flag LogFrame can be obtained by a call to :meth:`load_flags`. The arguments needs to be a proper :class:`~pandas.DataFrame` / :class:`LogFrame` (as opposed to a :class:`~pandas.Series`) - see use in :meth:`plot`.
+        """Return a list of ranges (start, end) of the data that have been used in a concatenation, as reconstructed from one columns of a LogFrame of (1, 0) flags. The flag LogFrame can be obtained by a call to :meth:`load_flags`. The arguments needs to be a proper :class:`~pandas.DataFrame` / :class:`LogFrame` (as opposed to a :class:`~pandas.Series`) - see use in :meth:`plot`.
 
         """
         if self.flag.columns.get_level_values('data_flag').unique().item() == 'flag':
@@ -85,7 +85,11 @@ class LogFrame(pd.DataFrame):
         if indexers:
             return self.columns.get_indexer(long.columns), self.columns.get_indexer(short.columns)
         else:
-            return pd.concat((self[long.columns], self[short.columns]), 1, keys=['long', 'short'])
+            df = pd.concat((self[long.columns], self[short.columns]), 1, keys=['long', 'short'])
+            names = self.columns.names.copy()
+            names.insert(0, 'long_short')
+            df.columns.names = names
+            return df
 
 
 class Reader(object):
@@ -93,7 +97,9 @@ class Reader(object):
 
     :Keyword arguments:
         * **directory** - The directory from which the data logger files are to be read.
-        * **copy** - If ``copy=Reader`` where ``Reader`` is an instance of the :class:`Reader` class, the data attributes are simply copied over so that the don't need to be read again from the original files. This is for development and will be removed later. All TensorFlow_ variables are initialized freshly.
+        * **copy** - If ``copy=Reader`` where ``Reader`` is an instance of the :class:`Reader` class, the data attributes are simply copied over so that the don't need to be read again from the original files. This is for development and will be removed later.
+        * **column_names** - if passed, replaces the class-level :attr:`.column_names`.
+        * Any further arguments are passed through to :meth:`_meta_multi_index` - they can be used to add additional levels to the columns :obj:`~pandas.MultiIndex` or to remove default ones by setting them to ``None``, e.g. ``data_flag = None``.
 
     """
 
@@ -107,11 +113,12 @@ class Reader(object):
     column_names = ['variable', 'in_out', 'filename', 'id', 'offset', 'data_flag']
     """Levels in :class:`pandas.MultiIndex` constructed by this class' methods."""
 
+    column_defaults = {'data_flag': 'data', 'in_out': 'in', 'id': 0., 'offset': 0., 'variable': ''}
 
-    def __init__(self, directory=None, copy=None):
+    def __init__(self, directory=None, copy=None, **kwargs):
         if directory is not None:
             files = glob(os.path.join(directory, '*.csv'))
-            self.data = LogFrame(pd.concat([self.read(f) for f in files], 1))
+            self.data = LogFrame(pd.concat([self.read(f, **kwargs) for f in files], 1))
         else:
             self.data = copy.data
 
@@ -131,35 +138,47 @@ class Reader(object):
             raise FileReadError(filename)
 
     @classmethod
-    def _meta_multi_index(cls, df, name=None):
+    def _meta_multi_index(cls, df, columns, **kwargs):
         """Add metadata in the form of :class:`~pandas.MultiIndex` columns to a DataFrame read in by a call to :func:`~pandas.read_csv`. Used by :meth:`read`.
 
         :param df: Input DataFrame
         :type df: :class:`~pandas.DataFrame`
-        :param name: the name of the csv data logger file
+        :param filename: the name of the csv data logger file
         :returns: DataFrame with metadata in columns' :class:`~pandas.MultiIndex` - see :meth:`read` for a description of the index levels.
         :rtype: :class:`~pandas.DataFrame`
 
+        :Keyword arguments:
+            See the main :class:`Reader` docstring.
+
         """
-        defaults = {'data_flag': 'data', 'in_out': 'in', 'filename': name, 'id': 0., 'offset': 0.}
 
-        # turn around the order and leave out the last level because it needs to be swapped with the 'variable' level eventually
-        for level in cls.column_names[:-1][::-1]:
-            df = pd.concat((df, ), 1, keys=[defaults[level]]) if level in defaults else df
-        # here I add the last level so I can then swap it
-        df = pd.concat((df, ), 1, keys=[defaults[cls.column_names[-1]]])
+        column_names = kwargs.pop('column_names', cls.column_names)
+        defaults = cls.column_defaults.copy()
+        defaults.update(kwargs)
+        column_names = [c for c in column_names if defaults[c] is not None]
+        column_names.extend([k for k, v in kwargs.items() if (v is not None) and (k not in column_names)])
 
-        df = df.swaplevel(0, -1, 1)
-        df.columns.names = cls.column_names
+        # turn around the order
+        for level in column_names[::-1]:
+            if level != columns:
+                df = pd.concat((df, ), 1, keys=[defaults[level]])
 
-        # add the flag columns
-        flags = df.copy()
-        flags.loc[:, :] = 1
-        flags.columns = flags.columns.set_levels(['flag'], 'data_flag')
-        return pd.concat((df, flags), 1).sort_index(1)
+        a = len(df.columns.levels) - 1
+        b = column_names.index(columns)
+        for i in range(a, b, -1):
+            df.columns = df.columns.swaplevel(i, i-1)
+
+        df.columns.names = column_names
+
+        if 'data_flag' in column_names:
+            flags = df.copy()
+            flags.loc[:, :] = 1
+            flags.columns = flags.columns.set_levels(['flag'], 'data_flag')
+            df = pd.concat((df, flags), 1).sort_index(1)
+        return df
 
     @classmethod
-    def read(cls, filename):
+    def read(cls, filename, **kwargs):
         """Read a data logger .csv file and return a dictionary of DataFrames for individual columns of the file. Each DataFrame contains one column with the data and one column with a flag value (for subsequent use) which is set to 1 for each record. The :class:`~pandas.MultiIndex` has the levels:
             * *variable* - the variable name (from the logger file)
             * *in_out* - whether this is raw data ('in') or concshortatenated ('out')
@@ -173,6 +192,9 @@ class Reader(object):
         :param filename: csv file to be read
         :returns: DataFrame with metadata in the columns :class:`~pandas.MultiIndex` and a :class:`~pandas.DatetimeIndex` as index. The timestamps are constructed from the columns 'Date' and 'Time' in the datalogger files.
         :rtype: :class:`~pandas.DataFrame`
+
+        :Keyword arguments:
+            Are passed directly to :meth:`._meta_multi_index`.
 
         """
         print("Reading file {}".format(filename))
@@ -195,7 +217,8 @@ class Reader(object):
         try:
             d.index = pd.DatetimeIndex(d.apply(lambda r:'{} {}'.format(r.Date, r.Time), 1))
             d.drop(['Date', 'Time'], 1, inplace=True)
-            return cls._meta_multi_index(d, os.path.basename(os.path.splitext(filename)[0]))
+            d.columns = [n.casefold() for n in d.columns]
+            return cls._meta_multi_index(d, filename=os.path.basename(os.path.splitext(filename)[0]), columns='variable', **kwargs)
         except UnboundLocalError:
             raise Exception('problems with {}'.format(filename))
 

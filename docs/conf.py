@@ -44,7 +44,7 @@ class Mock(MagicMock):
     def __getattr__(cls, name):
         return MagicMock()
 
-autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'scipy', 'tensorflow', 'statsmodels.tsa', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.patches']
+autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'scipy', 'tensorflow', 'statsmodels.tsa', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.patches', 'sklearn']
 sys.modules.update((n, Mock()) for n in autodoc_mock_imports)
 
 

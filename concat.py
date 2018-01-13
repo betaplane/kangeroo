@@ -1,7 +1,11 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from scipy.sparse import csgraph
+import scipy.odr as odr
+from sklearn.covariance import MinCovDet
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.cluster import DBSCAN
+import matplotlib.pyplot as plt
 import os
 from warnings import catch_warnings, simplefilter
 from .core import Reader
@@ -9,33 +13,81 @@ from .bspline import Bspline
 
 
 class Concatenator(Reader):
+    """Usage example::
+
+            cc = Concatenator(directory='data/4/1')
+
+    """
     def __init__(self, logdir=None, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, data_flag=None, time_adj=0, **kwargs)
 
         # while testing only for self.level
         # this removes the outlying data series for now (although we might want to use it in the end)
         # var = self.level.data.drop('AK4_LL-203_temp_August20_2012', 1, 'filename')
-        var = self.level.data
 
-        # only self.var is sorted correctly, i.e. in the same way as self.columns and self.tf_data
-        self.var = var.resample('30T').asfreq().organize_time()
-        self.meta = self.var.apply(self.phase, 0).to_frame('ft')
-        self.meta['dm'] = np.argmax(self.var.groupby(self.var.index.hour).mean().values, 0)
-        self.meta['mean'] = self.var.mean()
-        self.meta['std'] = self.var.std()
+        # self.var = self.pre_screen(var.resample('30T').asfreq().organize_time())
+        var = self.level.organize_time()
 
-        self.var['extra'] = np.nan
-        self.var['concat'] = np.nan
-        self.var['resid'] = np.nan
-        self.var['outliers'] = np.nan
+        end_points = var.end_points
+        starts = end_points.loc['start']
+        ends = end_points.loc['end']
+        D = self.distance(starts, ends)
 
-        # just so it isn't recomputed every time (it's a @property)
-        self.end_points = self.var.end_points
+        with catch_warnings():
+            simplefilter('ignore')
+            _, p = csgraph.dijkstra(-D, return_predecessors=True)
 
-        # self.traverse()
-        # self.meta = self.meta.iloc[self.order]
+        end = ends.argsort()[-1]
+        start = starts.argsort()[0]
+        order = [start, p[end, start]]
+
+        dispensable = []
+        while order[-1] != end:
+            order.append(p[end, order[-1]])
+            d = D[order[-1], order[-3]]
+            if d > -3600:
+                dispensable.append(len(order) - 2)
+
+        self.pre_screen(
+            self.time_zone(var.iloc[:, order]).resample('30T').asfreq().dropna(0, 'all'),
+            dispensable)
+
+        end_points = self.var.end_points
+        self.starts = self.var.index.get_indexer(end_points.loc['start'])
+        self.ends = self.var.index.get_indexer(end_points.loc['end'])
+
+        self.concat = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'interp', 'outliers', 'concat'])
+
+        self.traverse(start=0, end=self.var.shape[1])
 
 
+    def time_zone(self, var):
+        phase = var.apply(self.phase, 0)
+        i = np.arange(var.shape[1]).reshape((-1, 1))
+        tr = DecisionTreeRegressor(max_leaf_nodes=2).fit(i, phase)
+        cl = tr.apply(i)
+        a = var.iloc[:, cl == 1]
+        b = var.iloc[:, cl == 2]
+        a.index = a.index + pd.Timedelta(5, 'h')
+        a.columns = a.columns.set_levels([5], 'time_adj')
+        print("The following files' timestamps have been changed by 5 hours:\n")
+        for f in a.columns.get_level_values('filename'):
+            print(f)
+        print('')
+        return pd.concat((a, b), 1)
+
+
+    def pre_screen(self, var, disp, thresh=10):
+        fx = var.columns.names.index('filename')
+        feat = pd.concat((var.mean(), var.std()), 1)
+        mcd = MinCovDet().fit(feat)
+        md = mcd.mahalanobis(feat)
+        s = set(np.where(md > thresh)[0])
+        k = s.intersection(disp).union(s.intersection({0, var.shape[1]}))
+        self.var = var.drop(var.columns[list(k)], axis=1)
+        self.dispensable = list(set(disp) - k)
+        for i in k:
+            print('File {} removed from concatenation as unnecessary outlier.'.format(var.columns[i][fx]))
 
     @staticmethod
     def phase(x, p=86400):
@@ -77,10 +129,50 @@ in another one.
         # self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
 
     def distance(self, start, stop):
-        d = (stop.reshape((1, -1)) - start.reshape((-1, 1)))
+        d = (stop.values.reshape((1, -1)) - start.values.reshape((-1, 1))).astype('timedelta64[s]').astype(float)
         D = np.abs(d)
         return np.where(D < D.T, d, d.T) + np.diag(np.repeat(-np.inf, len(start)))
 
+    @staticmethod
+    def contiguous(s):
+        ds = np.diff(s.astype(int))
+        i = np.where(ds)[0]
+        if len(i) == 0:
+            return np.array([(0, len(s))])
+        return np.pad(i, ((ds[i[[0, -1]]] == [-1, 1]).astype(int)), 'linear_ramp', end_values = [0, len(s)]).reshape((-1, 2))
+
+
+    # orthogonal distance regression + DBSCAN clustering
+    def odr(self, i, plot=False, eps=2):
+        c = self.var.iloc[:, i:i+2].dropna(0, 'any')
+        x, y = c.values.T
+        t = c.index.values.astype('datetime64[s]').astype(float).reshape((-1, 1))
+        # o = odr.ODR(odr.Data(x, y), odr.models.unilinear, beta0=[1, 0]).run()
+        # r = np.abs(np.vstack((o.delta, o.eps))).max(0)
+        # db = DBSCAN(eps=eps).fit(r.reshape((-1, 1)))
+
+        db = DBSCAN(eps=eps).fit((y - x).reshape((-1, 1)))
+        labels, counts = np.unique(db.labels_, return_counts=True)
+        j = self.contiguous(labels[counts.argmax()] == db.labels_) + 1 # the + 1 used to be inside contiguous()
+        k = slice(*j[np.diff(j, 1, 1).argmax(), :])
+
+        xk, yk = x[k], y[k]
+        self.concat.loc[c.index.symmetric_difference(c.index[k]), 'outliers'] = -2
+        o = odr.ODR(odr.Data(xk, yk), odr.models.unilinear, beta0=[1, 0]).run()
+
+        if plot:
+            fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+            for l in sorted(labels):
+                h = db.labels_ == l
+                pl = axs[0].plot(t[h], x[h], 'x')[0]
+                axs[0].plot(t[h], y[h], '*', color=pl.get_color())
+                axs[1].plot(x[h], y[h], 'x')
+                axs[1].plot(o.xplus, o.y, 'r-')
+            axs[1].plot(xk, yk, 'mo', mfc='none')
+            axs[1].yaxis.tick_right()
+            plt.show()
+        else:
+            return xk, yk, o
 
     @staticmethod
     def outliers(resid, thresh):
@@ -88,35 +180,52 @@ in another one.
         r = np.nansum((np.abs(r) > thresh * np.nanstd(r, 1)).astype(int), 0)
         return None if np.sum(r) == 0 else r.astype(bool)
 
-    def traverse(self, thresh=3, smooth=10., stop=None):
-        # needs to be called within a graph.as_default() context
-        self.start = self.var.index.get_indexer(self.end_points.loc['start'])
-        self.stop = self.var.index.get_indexer(self.end_points.loc['stop'])
+    def spline(self, i, plot=False, smooth = 10., eps=2, half_length=20):
+        m = int(np.ceil((self.ends[i] + self.starts[i+1]) / 2))
+        j = np.arange(m - half_length, m + half_length + 1)
+        c = self.var.iloc[:, i:i+2].values.copy() # IMPORTANT! if not copy, value will be set on original
+        x, y = c[j[0]: m, 0], c[m: j[-1]+1, 1]
+        sp = Bspline(j)
+        sp.fit(np.r_[x, y], smooth)
+        db = DBSCAN(eps=eps).fit(abs(sp.resid).reshape((-1, 1)))
+        labels, counts = np.unique(db.labels_, return_counts=True)
+        l = labels[counts.argmax()]
+        k = j[db.labels_ == l]
+        o = self.var.index[j].symmetric_difference(self.var.index[k])
+        self.concat.loc[o, 'outliers'] = -1
+        c.iloc[k, :] = np.nan
 
-        D = self.distance(self.start, self.stop)
+        # if j is not None:
+        #     self.concat.ix[np.where(j)[0] + x[0], 'outliers'] = -1.
+        #     y1[j[:len(y1)]] = np.nan # here value will be set to NaN on original DataFrame, apparently
+        #     y2[j[len(y1):]] = np.nan
+        #     sp.fit2(y1, y2, smooth)
 
-        with catch_warnings():
-            simplefilter('ignore')
-            _, p = csgraph.dijkstra(-D, return_predecessors=True)
+        if plot:
+            fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+            colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+            t = self.var.index[j]
+            for k, l in enumerate(sorted(labels)):
+                h = db.labels_ == l
+                axs[0].plot(t[h], c[j[h], :], 'o', color=colors[k])
+                axs[1].plot(t[h], sp.resid[h], 'o', color=colors[k])
+            axs[0].plot(t, sp.spline, 'x-', color=colors[k+1])
+        else:
+            return outliers
 
-        i, c = np.unique(p, return_counts=True)
-        first, last = sorted(i[c == 1], key=lambda j: self.stop[j])
-        # first = self.start.argsort()[0]
-        # self.order = [self.stop.argsort()[-1]]
-        self.order = [last]
+    def traverse(self, start, end, thresh=3, smooth=10.):
         self.knots = []
-        offsets = []
+        offsets = pd.DataFrame()
+        long_short = self.var.columns.get_level_values('long_short')
 
-        s = 0
-        while self.order[0] != first:
-            self.order.insert(0, p[first, self.order[0]])
-            i = self.order[:2]
-            a, b = self.start[i]
-            c, d = self.stop[i]
+        for i in range(start, end-1):
+            a, b = self.starts[i: i+2]
+            c, d = self.ends[i: i+2]
 
             # should always be the center (beginning of second in case of flush connection)
             m = int(np.ceil((b + c) / 2))
-            self.knots.insert(0, m)
+            self.knots.append(m)
+            conn = '{}-{}'.format(*long_short[i:i+2])
 
             # if there's a gap or a flush connection
             if b - c > 0:
@@ -124,65 +233,52 @@ in another one.
                 # k.sort()
                 # x = np.arange(k[0], k[-1]+1)
                 x = np.arange(m - 20, m + 21)
-                y1 = self.var.iloc[x[0]: m, i[0]].values.copy() # IMPORTANT! if not copy, value will be set on original
-                y2 = self.var.iloc[m: x[-1]+1, i[1]].values.copy()
+                y1 = self.var.iloc[x[0]: m, i].values.copy() # IMPORTANT! if not copy, value will be set on original
+                y2 = self.var.iloc[m: x[-1]+1, i+1].values.copy()
                 sp = Bspline(x)
                 sp.fit2(y1, y2, smooth)
                 j = self.outliers(sp.resid, thresh)
                 if j is not None:
-                    self.var.ix[np.where(j)[0] + x[0], 'outliers'] = 1.
+                    self.concat.ix[np.where(j)[0] + x[0], 'outliers'] = -1.
                     y1[j[:len(y1)]] = np.nan # here value will be set to NaN on original DataFrame, apparently
                     y2[j[len(y1):]] = np.nan
                     sp.fit2(y1, y2, smooth)
 
-                offs = sp.offset
-                kind = 'spline'
-                resid = np.nanmean(sp.resid ** 2)
-                self.var.ix[x, 'extra'] = sp.spline
-                self.var.ix[x, 'resid'] = sp.resid
+                offsets = offsets.append({
+                    'offs': sp.offset,
+                    'kind': 'spline',
+                    'resid': np.nanmean(sp.resid ** 2),
+                    'conn': conn
+                }, ignore_index=True)
+                self.concat.ix[x, 'extra'] = sp.spline
+                self.concat.ix[x, 'resid'] = sp.resid
+
+            # if there is overlap
             else:
-                y1 = self.var.iloc[b: c+1, i[0]]
-                y2 = self.var.iloc[b: c+1, i[1]]
+                y1, y2, o = self.odr(i)
                 offs = np.nanmean(y2 - y1)
-                kind = 'mean'
-                resid = np.nanmean((y2 - offs - y1) ** 2)
-                self.start[i[1]] = m
-                self.stop[i[0]] = m - 1
+                offsets = offsets.append({
+                    'offs': offs,
+                    'kind': 'mean',
+                    'resid': np.nanmean((y2 - offs - y1) ** 2),
+                    'odr_slope': o.beta[0],
+                    'odr_offs': o.beta[1],
+                    'RSS1': np.mean(o.delta ** 2),
+                    'RSS2': np.mean(o.eps ** 2),
+                    'conn': conn
+                }, ignore_index=True)
+                self.starts[i+1] = m
+                self.ends[i] = m - 1
 
-            l = self.var.columns[i].get_level_values(0)
-            fn = self.var.columns[i].get_level_values('filename')
-            if l[1] == 'short':
-                if len(offsets) > 0:
-                    offsets[0]['start'] = (-offs, resid, kind)
-                else:
-                    offsets.insert(0, {'file': fn[1], 'start': (-offs, resid, kind)})
-            if l[0] == 'short':
-                offsets.insert(0, {'file': fn[0], 'end': (offs, resid, kind)})
-                if l[1] == 'short':
-                    offsets[0]['next'] = fn[1]
+        self.corr_offs = []
+        for a, b in self.contiguous(long_short == 'short'):
+            offs = offsets.ix[a: b, 'offs']
+            if (a == 0) and long_short[0] == 'short':
+                self.corr_offs.extend(np.cumsum(offs[::-1])[::-1])
+            else:
+                self.corr_offs.extend(offs[:-1] - offs.mean())
+        self.offsets = offsets
 
-            if stop is not None:
-                print(kind)
-                if kind == 'spline':
-                    return sp
-
-        for i in self.order:
-            a = self.start[i]
-            b = self.stop[i] + 1
-            self.var.ix[a: b, 'concat'] = self.var.iloc[a: b, i]
-
-        self.offsets = []
-        while len(offsets) > 0:
-            o = [offsets.pop(0)]
-            try:
-                while o[-1]['next'] == offsets[0]['file']:
-                    o.append(offsets.pop(0))
-            except:
-                pass
-            finally:
-                self.offsets.append(o)
-
-    def files_in_order(self):
-        fn = self.var.columns.get_level_values('filename')[self.order]
-        for o, f in zip(self.order, fn):
-            print('{}: {}'.format(o, f))
+        for i, (a, b) in enumerate(zip(self.starts, self.ends)):
+            offs = self.corr_offs.pop(0) if long_short[i] == 'short' else 0
+            self.concat.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] - offs

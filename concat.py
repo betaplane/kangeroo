@@ -5,6 +5,7 @@ import scipy.odr as odr
 from sklearn.covariance import MinCovDet
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.cluster import DBSCAN
+import statsmodels.api as sm
 import matplotlib.pyplot as plt
 import os
 from warnings import catch_warnings, simplefilter
@@ -58,7 +59,7 @@ class Concatenator(Reader):
 
         self.concat = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'interp', 'outliers', 'concat'])
 
-        self.traverse(start=0, end=self.var.shape[1])
+        self.traverse()
 
 
     def time_zone(self, var):
@@ -141,144 +142,165 @@ in another one.
             return np.array([(0, len(s))])
         return np.pad(i, ((ds[i[[0, -1]]] == [-1, 1]).astype(int)), 'linear_ramp', end_values = [0, len(s)]).reshape((-1, 2))
 
+    def dbscan(self, resid, return_labels=False, contiguous=False, eps=2):
+        db = DBSCAN(eps=eps).fit(resid.reshape((-1, 1)))
+        labels, counts = np.unique(db.labels_, return_counts=True)
+        l = labels[counts.argmax()] == db.labels_
+        if contiguous:
+            j = self.contiguous(l) + 1 # the + 1 used to be inside contiguous()
+            l = slice(*j[np.diff(j, 1, 1).argmax(), :])
+        return (l, [db.labels_ == i for i in sorted(labels)]) if return_labels else l
 
-    # orthogonal distance regression + DBSCAN clustering
+    # orthogonal distance regression
     def odr(self, i, plot=False, eps=2):
         c = self.var.iloc[:, i:i+2].dropna(0, 'any')
-        x, y = c.values.T
-        t = c.index.values.astype('datetime64[s]').astype(float).reshape((-1, 1))
-        # o = odr.ODR(odr.Data(x, y), odr.models.unilinear, beta0=[1, 0]).run()
-        # r = np.abs(np.vstack((o.delta, o.eps))).max(0)
-        # db = DBSCAN(eps=eps).fit(r.reshape((-1, 1)))
 
-        db = DBSCAN(eps=eps).fit((y - x).reshape((-1, 1)))
-        labels, counts = np.unique(db.labels_, return_counts=True)
-        j = self.contiguous(labels[counts.argmax()] == db.labels_) + 1 # the + 1 used to be inside contiguous()
-        k = slice(*j[np.diff(j, 1, 1).argmax(), :])
+        # outliers are detected from the differenc between the two series
+        diff = c.diff(1, 1).values[:, 1]
+        k, labels = self.dbscan(diff, True, True, eps)
 
-        xk, yk = x[k], y[k]
+        x, y = c.iloc[k].values.T
         self.concat.loc[c.index.symmetric_difference(c.index[k]), 'outliers'] = -2
-        o = odr.ODR(odr.Data(xk, yk), odr.models.unilinear, beta0=[1, 0]).run()
+        o = odr.ODR(odr.Data(x, y), odr.models.unilinear, beta0=[1, 0]).run()
+        diff = diff[k]
+        offs = np.nanmean(diff)
+        m = np.argmin(abs(diff - offs)) + np.where(k)[0].min()
+        self.starts[i+1] += m
+        self.ends[i] = self.starts[i+1] - 1
 
         if plot:
             fig, axs = plt.subplots(1, 2, figsize=(12, 5))
-            for l in sorted(labels):
-                h = db.labels_ == l
+            t = c.index.values.astype('datetime64[s]').astype(float).reshape((-1, 1))
+            for h in labels:
                 pl = axs[0].plot(t[h], x[h], 'x')[0]
                 axs[0].plot(t[h], y[h], '*', color=pl.get_color())
                 axs[1].plot(x[h], y[h], 'x')
                 axs[1].plot(o.xplus, o.y, 'r-')
-            axs[1].plot(xk, yk, 'mo', mfc='none')
+            axs[1].plot(x, y, 'mo', mfc='none')
             axs[1].yaxis.tick_right()
             plt.show()
         else:
-            return xk, yk, o
+            return {
+                'offs': offs,
+                'kind': 'mean',
+                'stdev': diff.std() / np.sqrt(len(diff)),
+                'odr_slope': o.beta[0],
+                'odr_offs': o.beta[1],
+                'RSS1': np.mean(o.delta ** 2),
+                'RSS2': np.mean(o.eps ** 2),
+            }
 
-    @staticmethod
-    def outliers(resid, thresh):
-        r = np.repeat(resid.reshape((1, -1)), len(resid), 0) + np.diag(np.empty_like(resid.flatten()) * np.nan)
-        r = np.nansum((np.abs(r) > thresh * np.nanstd(r, 1)).astype(int), 0)
-        return None if np.sum(r) == 0 else r.astype(bool)
-
-    def spline(self, i, plot=False, smooth = 10., eps=2, half_length=20):
-        m = int(np.ceil((self.ends[i] + self.starts[i+1]) / 2))
+    def spline(self, i, m, plot=False, smooth = 10., eps=2, half_length=20):
         j = np.arange(m - half_length, m + half_length + 1)
-        c = self.var.iloc[:, i:i+2].values.copy() # IMPORTANT! if not copy, value will be set on original
-        x, y = c[j[0]: m, 0], c[m: j[-1]+1, 1]
-        sp = Bspline(j)
-        sp.fit(np.r_[x, y], smooth)
-        db = DBSCAN(eps=eps).fit(abs(sp.resid).reshape((-1, 1)))
-        labels, counts = np.unique(db.labels_, return_counts=True)
-        l = labels[counts.argmax()]
-        k = j[db.labels_ == l]
-        o = self.var.index[j].symmetric_difference(self.var.index[k])
-        self.concat.loc[o, 'outliers'] = -1
-        c.iloc[k, :] = np.nan
 
-        # if j is not None:
-        #     self.concat.ix[np.where(j)[0] + x[0], 'outliers'] = -1.
-        #     y1[j[:len(y1)]] = np.nan # here value will be set to NaN on original DataFrame, apparently
-        #     y2[j[len(y1):]] = np.nan
-        #     sp.fit2(y1, y2, smooth)
+        c = self.var.iloc[j, i:i+2].sum(1, skipna=True)
+        sp = Bspline(j)
+        sp.fit(c, smooth)
+        orig_stdev = sp.resid.std() / np.sqrt(len(j))
 
         if plot:
             fig, axs = plt.subplots(1, 2, figsize=(12, 5))
             colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-            t = self.var.index[j]
+            t = c.index
             for k, l in enumerate(sorted(labels)):
                 h = db.labels_ == l
-                axs[0].plot(t[h], c[j[h], :], 'o', color=colors[k])
+                axs[0].plot(t[h], c.loc[h], 'o', color=colors[k])
                 axs[1].plot(t[h], sp.resid[h], 'o', color=colors[k])
             axs[0].plot(t, sp.spline, 'x-', color=colors[k+1])
+            plt.show()
         else:
-            return outliers
+            l = self.dbscan(sp.resid)
+            o = c.index.symmetric_difference(c.index[l])
+            sp.fit(np.ma.MaskedArray(c, ~l), smooth, m - j[0])
+            self.concat.ix[j, 'extra'] = sp.spline
+            self.concat.ix[j, 'resid'] = sp.resid
+            if len(o) > 0:
+                self.concat.loc[o, 'outliers'] = -1
+                self.starts[i+1] = self.var.index.get_loc(max(o)) + 1
+                self.ends[i] = self.var.index.get_loc(min(o)) - 1 # ``starts`` and ``ends`` give the actual indexes, not the slice arguments
+            return {
+                'offs': sp.offset,
+                'kind': 'spline',
+                'stdev': sp.resid.std() / np.sqrt(len(j)),
+                'orig_stdev' : orig_stdev
+            }
 
-    def traverse(self, start, end, thresh=3, smooth=10.):
+    def traverse(self, smooth=10.):
         self.knots = []
         offsets = pd.DataFrame()
+        file_names = self.var.columns.get_level_values('filename')
         long_short = self.var.columns.get_level_values('long_short')
 
-        for i in range(start, end-1):
-            a, b = self.starts[i: i+2]
-            c, d = self.ends[i: i+2]
-
+        for i, (b, c) in enumerate(zip(self.starts[1:], self.ends[:-1])):
             # should always be the center (beginning of second in case of flush connection)
             m = int(np.ceil((b + c) / 2))
-            self.knots.append(m)
-            conn = '{}-{}'.format(*long_short[i:i+2])
 
             # if there's a gap or a flush connection
             if b - c > 0:
-                # k = np.r_[c - 2 + np.arange(0, -3, -1) * n, b + 2 + np.arange(3) * n]
-                # k.sort()
-                # x = np.arange(k[0], k[-1]+1)
-                x = np.arange(m - 20, m + 21)
-                y1 = self.var.iloc[x[0]: m, i].values.copy() # IMPORTANT! if not copy, value will be set on original
-                y2 = self.var.iloc[m: x[-1]+1, i+1].values.copy()
-                sp = Bspline(x)
-                sp.fit2(y1, y2, smooth)
-                j = self.outliers(sp.resid, thresh)
-                if j is not None:
-                    self.concat.ix[np.where(j)[0] + x[0], 'outliers'] = -1.
-                    y1[j[:len(y1)]] = np.nan # here value will be set to NaN on original DataFrame, apparently
-                    y2[j[len(y1):]] = np.nan
-                    sp.fit2(y1, y2, smooth)
-
-                offsets = offsets.append({
-                    'offs': sp.offset,
-                    'kind': 'spline',
-                    'resid': np.nanmean(sp.resid ** 2),
-                    'conn': conn
-                }, ignore_index=True)
-                self.concat.ix[x, 'extra'] = sp.spline
-                self.concat.ix[x, 'resid'] = sp.resid
+                offs = self.spline(i, m, smooth=smooth)
 
             # if there is overlap
             else:
-                y1, y2, o = self.odr(i)
-                offs = np.nanmean(y2 - y1)
-                offsets = offsets.append({
-                    'offs': offs,
-                    'kind': 'mean',
-                    'resid': np.nanmean((y2 - offs - y1) ** 2),
-                    'odr_slope': o.beta[0],
-                    'odr_offs': o.beta[1],
-                    'RSS1': np.mean(o.delta ** 2),
-                    'RSS2': np.mean(o.eps ** 2),
-                    'conn': conn
-                }, ignore_index=True)
-                self.starts[i+1] = m
-                self.ends[i] = m - 1
+                offs = self.odr(i)
+                m = self.starts[i+1]
 
+            self.knots.append(m)
+            offs.update({
+                'conn': '{}-{}'.format(*long_short[i:i+2]),
+                'diff': self.var.ix[self.starts[i+1], i+1] - self.var.ix[self.ends[i], i]
+            })
+            offsets = offsets.append(offs, ignore_index=True)
+
+        cols = offsets.columns.tolist()
+        idx = offsets.columns.get_indexer(['offs', 'diff'])
+        cols.extend(['corr_offs', 'diff_csum'])
+        corr_offs = []
+        c = self.contiguous(long_short == 'short')
         self.corr_offs = []
-        for a, b in self.contiguous(long_short == 'short'):
-            offs = offsets.ix[a: b, 'offs']
-            if (a == 0) and long_short[0] == 'short':
-                self.corr_offs.extend(np.cumsum(offs[::-1])[::-1])
+        for a, b in c:
+            offs = offsets.iloc[a: b+1]
+            if a == 0 and long_short[0] == 'short':
+                offs = pd.concat((offs, offs.iloc[::-1, idx].cumsum().iloc[::-1]), 1)
+                offs.index = file_names[a: b+1]
             else:
-                self.corr_offs.extend(offs[:-1] - offs.mean())
-        self.offsets = offsets
+                csum = - offs.iloc[:, idx].cumsum()
+                if long_short[b + 1] == 'long':
+                    corr = offs.stdev
+                    corr = - corr / corr.sum() * csum['offs'].iloc[-1]
+                    csum = pd.concat((csum['offs'] + corr, csum['diff']), 1)
+                offs = pd.concat((offs, csum), 1)
+                offs.index = file_names[a+1: b+2]
+            offs.columns = cols
+            corr_offs.append(offs)
+
+        self.offsets = pd.concat((corr_offs), keys=range(c.shape[0])).T
+        corr_offs = self.offsets.loc['corr_offs']
 
         for i, (a, b) in enumerate(zip(self.starts, self.ends)):
-            offs = self.corr_offs.pop(0) if long_short[i] == 'short' else 0
-            self.concat.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] - offs
+            offs = corr_offs.xs(file_names[i], level=1).item() if long_short[i] == 'short' else 0
+            self.concat.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] + offs
+
+    # doesn't work if gaps aren't infilled!
+    def ar(self, i, plot=False, ar=1, half_length=500):
+        long_short = self.var.columns.get_level_values('long_short')
+        a, b = self.contiguous(long_short == 'short')[i]
+
+        knots = self.knots[a: b+1]
+        j = np.arange(max(0, knots[0] - half_length), min(self.var.shape[0]+ 1, knots[-1] + half_length + 1))
+        concat = self.concat.ix[j, 'concat']
+        a = sm.tsa.AR(concat).fit(ar)
+        r = [a.resid[self.var.index[k]] for k in knots]
+        print(r)
+
+        if plot:
+            fig, ax = plt.subplots()
+            plt.plot(concat)
+            for k in knots:
+                ax.axvline(self.var.index[k], color='g')
+
+            bx = ax.twinx()
+            bx.plot(a.resid, 'r')
+            plt.show()
+        else:
+            return r
+

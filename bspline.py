@@ -23,11 +23,12 @@ Class to construct regression or smoothing splines in a B-spline basis. See :cit
     def __init__(self, locs, knots=None, order=4):
         x = np.asarray(locs).reshape((-1, 1))
         if knots is None:
-            t = x.flatten()
+            t = np.unique(locs).flatten()
+            t.sort()
         else:
             t = np.asarray(knots).flatten()
         a = np.arange(1, order + 1)
-        T = np.r_[locs[0] - a[::-1], t, a + locs[-1]]
+        T = np.r_[min(x) - a[::-1], t, a + max(x)]
         B = (x >= T[:-1]) & (x < T[1:])
 
         for m in range(1, order):
@@ -36,89 +37,56 @@ Class to construct regression or smoothing splines in a B-spline basis. See :cit
 
         self.basis = B
 
-    @property
-    def diff2(self):
+    def asymmetric2ndDerivativeMatrix(self, pad=False):
+        """This should correspond to :cite:`eilers_flexible_1996`, but I'm not sure if it's correct - see the symmetric variant below. It does seem to give the 'more correct' results though, minus the (lower) boundary effects.
+        """
         # the first two elements of D * vector are nixed because it's second order differences
         o = np.ones(self.basis.shape[1] - 2)
-        return np.diag(np.r_[0, 0, o]) - 2 * np.diag(np.r_[0, o], -1) + np.diag(o, -2)
+        D = np.diag(np.r_[0, 0, o]) - 2 * np.diag(np.r_[0, o], -1) + np.diag(o, -2)
+        return np.pad(D, ((0, 0), (0, 1)), 'constant') if pad else D
 
-    def fit(self, y, l=None):
-        """This fits either a regression spline or a smoothing spline (if ``l`` is given).
+    def symmetric2ndDerivativeMatrix(self, pad=False):
+        """This is a symmetric variant of the 2nd derivative matrix. Have to check what is really correct since I'm using the B-spline construction from :cite:`hastie_elements_2001`, not from :cite:`eilers_flexible_1996`. Also not sure my derivation of the upwind/downwind second differences at the boundaries is correct.
+        """
+        o = np.ones(self.basis.shape[1])
+        D = np.diag(o[1:], -1) - 2 * np.diag(o) + np.diag(o[1:], 1)
+        D[0, :3] = [1, -2, 1]
+        D[-1, -3:] = [1, -2, 1]
+        return np.pad(D, ((0, 0), (0, 1)), 'constant') if pad else D
+
+
+    def fit(self, y, l=None, split_index=None):
+        """This fits either a regression spline or a smoothing spline (if ``l`` is given). Additionally, an additive offset can be fit by giving the ``split_index`` argument, which gives the index at which the input data ``y`` is assumed to be split into two separate pieces (see below). The offset is calculated such that the second piece is assumed to have the offset added with respect to the first. The fit spline is available as attribute :attr:`.spline`, the offset (if applicable) as :attr:`.offset` and the residuals of the data w.r.t. the spline in :attr:`.resid`.
 
         :param y: Vector of data values. May have :class:`~numpy.nan` values.
         :type y: :obj:`list` or :class:`~numpy.ndarray`
         :param l: Regularizing parameter (:math:`\lambda` in :cite:`eilers_flexible_1996`, :cite:`hastie_elements_2001`). If ``None``, a regression spline is fit, otherwise a smoothing spline.
         :type l: :obj:`float` or :obj:`None`
-        :returns: Smoothing spline values at the same locations as input.
-        :rtype: :class:`~numpy.ndarray`
+        :param split_index: If an additive offset is to be fit, ``split_index`` denotes the index that splits the given timeseries into two parts (say ``a`` and ``b``) according to the usual python indexing rules, i.e. ``a, b = y[:split_index], y[split_index:]``.
+        :type split_index: int
+        :returns: ``Bspline`` object, for chaining (e.g. ``bsp = Bspline(x).fit(y)``), with attributes ``spline``, ``offset`` (if applicable) and ``resid``/
+        :rtype: :class:`Bspline`
 
         """
-        x = np.asarray(y).reshape((-1, 1))
-        i = np.isfinite(x).flatten()
-        x = x[i]
+        self.resid = np.ma.masked_invalid(y).flatten()
+        i = ~self.resid.mask
+        x = self.resid[i].reshape((-1, 1))
         B = self.basis[i, :]
+        if split_index is not None:
+            z = np.r_[np.zeros(split_index), np.ones(len(y) - split_index)]
+            B = np.r_['1', B, z[i].reshape((-1, 1))]
         if l is not None:
-            D = self.diff2[2:, :]
+            # D = self.symmetric2ndDerivativeMatrix(split_index is not None)
+            D = self.asymmetric2ndDerivativeMatrix(split_index is not None)[2:, :]
             B = np.r_['0', B, l * D]
             x = np.pad(x, ((0, D.shape[0]), (0, 0)), 'constant')
-        self.spline = self.basis.dot(np.linalg.lstsq(B, x)[0])
+        a = np.linalg.lstsq(B, x)[0]
+        if split_index:
+            a, self.offset = a[:-1], a[-1].item()
+            self.resid -= self.offset * z
+        self.spline = self.basis.dot(a).flatten()
+        self.resid -= self.spline
 
-    def fit_df(self, y, l):
-        """This uses the smoothing matrix (S) formulation, whose trace is the definition of the effective number of degrees of freedom. Otherwise the same as :meth:`.smooth`.
-
-        """
-        import tensorflow as tf
-        b = np.asarray(y).reshape((-1, 1))
-        A_inv = tf.matrix_inverse(self.basis.T.dot(self.basis) + l * self.D.T.dot(self.D))
-        S = tf.matmul(tf.matmul(self.basis, A_inv), self.basis, transpose_b=True)
-        print(tf.trace(S).eval())
-        return tf.matmul(S, b.reshape((-1, 1)))
-
-    def fit2(self, y1, y2, l=None):
-        """Fit a regression or smoothing spline consisting of two pieces which may be offset by an additive constant with respect to each other. The offset is accessible as :attr:`.offset` attribute, the fitted spline as :attr:`.spline`. The second one is assumed to be the offset one; if the truely offset one is the first one, the value of the computed offset simply needs to be negated.
-
-        :param y1: First vector of data values.
-        :type y1: :obj:`list` or :class:`~numpy.ndarray`
-        :param y2: Second vector of data values. (This vector is assumed to be offset.)
-        :type y2: :obj:`list` or :class:`~numpy.ndarray`
-        :param l: Penalty parameter for the smoothing (denoted :math:`\lambda` by :cite:`eilers_flexible_1996`, :cite:`hastie_elements_2001`). If ``None``, a regression spline is fit, otherwise a smoothing spline.
-        :type l: :obj:`float` or :obj:`None`
-
-        """
-        z1 = np.zeros_like(y1).flatten()
-        z2 = np.ones_like(y2).flatten()
-        y = np.hstack((np.asarray(y1).flatten(), np.asarray(y2).flatten()))
-        i = np.isfinite(y)
-        x = y[i].reshape((-1, 1))
-        z = np.hstack((z1, z2))
-        B = np.r_['1', self.basis, z.reshape((-1, 1))][i, :]
-        if l is not None:
-            D = np.pad(self.diff2, ((0, 0), (0, 1)), 'constant')
-            B = np.r_['0', B, l * D]
-            x = np.pad(x, ((0, self.basis.shape[1]), (0, 0)), 'constant')
-        s = np.linalg.lstsq(B, x)[0]
-        self.offset = s[-1].item()
-        self.spline = self.basis.dot(s[:-1]).flatten()
-        self.resid = y - z * self.offset - self.spline
-
-    def set_df(self, df, learn=0.01, n_iter=100):
-        """TensorFlow_-based optimization routine to compute :math:`\lambda` from effective number of degrees of freedom.
-
-        """
-        import tensorflow as tf
-        gr = tf.Graph()
-        self.sess = tf.Session(graph=gr)
-        with gr.as_default():
-            self.lmbd = tf.get_variable('lambda', (), tf.float64, tf.constant_initializer(200.))
-            A_inv = tf.matrix_inverse(self.basis.T.dot(self.basis) + self.lmbd * self.D.T.dot(self.D))
-            S = tf.matmul(tf.matmul(self.basis, A_inv), self.basis, transpose_b=True)
-            loss = (tf.trace(S) - df) ** 2
-            op = tf.train.AdamOptimizer(learn).minimize(loss)
-            tf.global_variables_initializer().run(session=self.sess)
-            prog = tf.keras.utils.Progbar(n_iter)
-            for i in range(n_iter):
-                _, l = self.sess.run([op, loss])
-                prog.update(i, [('Loss', l)])
 
 if __name__=="__main__":
     x = np.linspace(0, 1, 100)
@@ -128,6 +96,4 @@ if __name__=="__main__":
     y2 = f[50:] + 2# + np.random.randn(50)
     y = np.hstack((y1, y2))
     b = Bspline(x)
-    # b.fit2(y1, y2, 1, .1)
-    # b = Bspline(x, x[::10])
-    # b.fit2(y1, y2, 1)
+    b.fit(y, 1, 50)

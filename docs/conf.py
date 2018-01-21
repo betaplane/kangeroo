@@ -44,7 +44,7 @@ class Mock(MagicMock):
     def __getattr__(cls, name):
         return MagicMock()
 
-autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'scipy', 'tensorflow', 'statsmodels.tsa', 'matplotlib', 'matplotlib.pyplot', 'matplotlib.patches', 'sklearn']
+autodoc_mock_imports = ['pandas', 'sqlalchemy', 'numpy', 'scipy', 'tensorflow', 'statsmodels', 'matplotlib', 'sklearn']
 sys.modules.update((n, Mock()) for n in autodoc_mock_imports)
 
 
@@ -174,6 +174,7 @@ texinfo_documents = [
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
+    'np': ('https://docs.scipy.org/doc/numpy/', None),
     'pd': ('http://pandas.pydata.org/pandas-docs/stable/', None),
     'sqla': ('http://docs.sqlalchemy.org/en/latest/', None)
 }

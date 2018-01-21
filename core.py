@@ -31,7 +31,7 @@ class LogFrame(pd.DataFrame):
         try:
             return self.xs(attr, 1, level, False)
         except KeyError:
-            warn("LogFrame does not have a '{}' attributes - original frame returned.".format(attr))
+            warn("LogFrame does not have a {} attributes - original frame returned.".format(attr))
             return self
 
     @property

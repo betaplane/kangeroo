@@ -1,3 +1,19 @@
+"""
+.. todo::
+
+    * simplify / streamline ``core`` DataFrame routines in light of current algorithm
+    * attach plot.concat to Concatenator
+    * experiment with different smoothing parameters for the spline
+    * use of previously removed dataseries (dispensables) for the offset confidence calculation
+    * check other possibilities for confidence of offsets, e.g.
+        * R^2 / generalized OLS ideas
+
+Other remarks
+-------------
+    * If the dbscan outlier routine goes haywire, an alternative to choosing the cluster with the most members could be to fit a regression to each cluster and chose the one with the slope closest to one.
+
+"""
+
 import pandas as pd
 import numpy as np
 from scipy.sparse import csgraph
@@ -14,19 +30,14 @@ from .bspline import Bspline
 
 
 class Concatenator(Reader):
-    """Usage example::
+    """
+    Usage example::
 
-            cc = Concatenator(directory='data/4/1')
+        cc = Concatenator(directory='data/4/1')
 
     """
-    def __init__(self, logdir=None, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, data_flag=None, time_adj=0, **kwargs)
-
-        # while testing only for self.level
-        # this removes the outlying data series for now (although we might want to use it in the end)
-        # var = self.level.data.drop('AK4_LL-203_temp_August20_2012', 1, 'filename')
-
-        # self.var = self.pre_screen(var.resample('30T').asfreq().organize_time())
         var = self.level.organize_time()
 
         end_points = var.end_points
@@ -49,18 +60,19 @@ class Concatenator(Reader):
             if d > -3600:
                 dispensable.append(len(order) - 2)
 
-        self.pre_screen(
-            self.time_zone(var.iloc[:, order]).resample('30T').asfreq().dropna(0, 'all'),
-            dispensable)
+        v = self.time_zone(var.iloc[:, order]).resample('30T').asfreq()
+        self.delta = v.index.freq.delta.to_timedelta64()
+        self.pre_screen(v.dropna(0, 'all'), dispensable)
 
         end_points = self.var.end_points
         self.starts = self.var.index.get_indexer(end_points.loc['start'])
         self.ends = self.var.index.get_indexer(end_points.loc['end'])
 
-        self.concat = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'interp', 'outliers', 'concat'])
-
+        self.out = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'extra', 'interp', 'outliers', 'concat'])
+        self.file_names = self.var.columns.get_level_values('filename')
+        self.long_short = self.var.columns.get_level_values('long_short')
         self.traverse()
-
+        self.concat()
 
     def time_zone(self, var):
         phase = var.apply(self.phase, 0)
@@ -100,55 +112,38 @@ class Concatenator(Reader):
         cycle = a * np.exp (1j * 2 * np.pi * t / p) / N
         return phase
 
-    def overlap_and_contained(self):
-        """Returns symmetric matrix of which series overlap with each other:
-            * a 1 entry means that the row/columns combo overlaps - the row/column indexes refer to the numeric index of a series in the original data.
-            * The `contained` :class:`DataFrame` has a 1 for series that are entirely contained 
-in another one.
-
-        **Input**: a .data or .flag :class:`DataFrame` with :meth:`get_start_stop` applied to axis 0 (see :meth:`chains`).
-
-        """
-        stop = self.end_points.loc['stop'].values.reshape((1, -1)).astype(float)
-        start = self.end_points.loc['start'].values.reshape((-1, 1)).astype(float)
-        m = (stop - start)
-        self.overlap = ((m > 0) & (m.T > 0)).astype(int) - np.diag(np.ones(m.shape[0]))
-        self.contained = (((stop - stop.T) > 0) & ((start - start.T) > 0)).astype(int)
-
-    def overlap_fraction(self):
-        """
-        Returns a matrix of the fraction of a series' duration to the shorter of the two possible overlap distances (i.e. stop - start with both combinations of two series).
-            * **If an element is > 1**, its **row index** refers to the series which is **entirely contained** in the other series, while its **column index** refers to the series within which it is **contained**.
-
-        """
-        stop = self.end_points.loc['stop'].values.reshape((1, -1))
-        start = self.end_points.loc['start'].values.reshape((1, -1))
-        # duration = (stop - start).astype('datetime64[s]')
-        m = (stop - start.T).astype('timedelta64[s]')
-        return np.where(m < m.T, m, m.T).astype(float) + np.diag(np.repeat(-np.inf, self.var.shape[1]))
-        # self.overlap = m * m.T
-        # self.contained = np.where(overlap > duration) # I believe the second is contained in the first - CHECK!!!
-
     def distance(self, start, stop):
         d = (stop.values.reshape((1, -1)) - start.values.reshape((-1, 1))).astype('timedelta64[s]').astype(float)
         D = np.abs(d)
         return np.where(D < D.T, d, d.T) + np.diag(np.repeat(-np.inf, len(start)))
 
+    # remember, this returns the expected indexes -1, because this fits the need of some of the parts of the algorithm
     @staticmethod
-    def contiguous(s):
+    def _contiguous(s):
         ds = np.diff(s.astype(int))
         i = np.where(ds)[0]
         if len(i) == 0:
             return np.array([(0, len(s))])
         return np.pad(i, ((ds[i[[0, -1]]] == [-1, 1]).astype(int)), 'linear_ramp', end_values = [0, len(s)]).reshape((-1, 2))
 
+    @staticmethod
+    def contiguous(s):
+        """Returns the indexes between which the input array is ``True`` or ``1`` as closed intervals in the rows of the returnd :class:`~numpy.ndarray` (i.e. for integer-based slicing, the second index has to be incremented by one, and the length of the interval is equal to the difference along dimension one **+1**).
+        """
+        ds = np.diff(s.astype(int))
+        starts = np.pad(np.where(ds==1)[0] + 1, (int(s[0]==1), 0), 'constant')
+        ends = np.pad(np.where(ds==-1)[0], (0, int(s[-1]==1)), 'constant', constant_values=len(ds))
+        return np.vstack((starts, ends)).T
+
+    # this is the outlier detection routine, using DBSCAN on either the differences (overlap) or residuals (spline)
     def dbscan(self, resid, return_labels=False, contiguous=False, eps=2):
         db = DBSCAN(eps=eps).fit(resid.reshape((-1, 1)))
         labels, counts = np.unique(db.labels_, return_counts=True)
         l = labels[counts.argmax()] == db.labels_
         if contiguous:
-            j = self.contiguous(l) + 1 # the + 1 used to be inside contiguous()
-            l = slice(*j[np.diff(j, 1, 1).argmax(), :])
+            j = self.contiguous(l)
+            a, b = j[np.diff(j, 1, 1).argmax(), :]
+            l = slice(a, b+1)
         return (l, [db.labels_ == i for i in sorted(labels)]) if return_labels else l
 
     # orthogonal distance regression
@@ -160,7 +155,6 @@ in another one.
         k, labels = self.dbscan(diff, True, True, eps)
 
         x, y = c.iloc[k].values.T
-        self.concat.loc[c.index.symmetric_difference(c.index[k]), 'outliers'] = -2
         o = odr.ODR(odr.Data(x, y), odr.models.unilinear, beta0=[1, 0]).run()
         diff = diff[k]
         offs = np.nanmean(diff)
@@ -171,6 +165,7 @@ in another one.
         if plot:
             fig, axs = plt.subplots(1, 2, figsize=(12, 5))
             t = c.index.values.astype('datetime64[s]').astype(float).reshape((-1, 1))
+            x, y = c.values.T
             for h in labels:
                 pl = axs[0].plot(t[h], x[h], 'x')[0]
                 axs[0].plot(t[h], y[h], '*', color=pl.get_color())
@@ -180,6 +175,15 @@ in another one.
             axs[1].yaxis.tick_right()
             plt.show()
         else:
+            idx = c.index.symmetric_difference(c.index[k])
+            j = np.where(np.diff(idx) != self.delta)[0]
+            if len(j) > 1:
+                print('Complex outlier structure deteced at knot {}'.format(i))
+            elif len(j) == 1: # means there are outliers on either end of the overlap
+                self.out.loc[idx[:j[0]+1], 'outliers'] = i + 1
+                self.out.loc[idx[j[0]+1:], 'outliers'] = i
+            elif len(idx) > 0: # means there are outliers only in one of the two series
+                self.out.loc[idx, 'outliers'] = i + int(idx[0] == c.index[0])
             return {
                 'offs': offs,
                 'kind': 'mean',
@@ -190,10 +194,11 @@ in another one.
                 'RSS2': np.mean(o.eps ** 2),
             }
 
-    def spline(self, i, m, plot=False, smooth = 10., eps=2, half_length=20):
+    def spline(self, i, plot=False, smooth = 10., eps=2, half_length=20):
+        m = int(np.ceil((self.starts[i+1] + self.ends[i]) / 2))
         j = np.arange(m - half_length, m + half_length + 1)
 
-        c = self.var.iloc[j, i:i+2].sum(1, skipna=True)
+        c = self.var.iloc[j, i:i+2].sum(1, skipna=True) # this is a hack, only works if there is no overlap of course!
         sp = Bspline(j)
         sp.fit(c, smooth)
         orig_stdev = sp.resid.std() / np.sqrt(len(j))
@@ -209,85 +214,98 @@ in another one.
             axs[0].plot(t, sp.spline, 'x-', color=colors[k+1])
             plt.show()
         else:
-            l = self.dbscan(sp.resid)
-            o = c.index.symmetric_difference(c.index[l])
-            sp.fit(np.ma.MaskedArray(c, ~l), smooth, m - j[0])
-            self.concat.ix[j, 'extra'] = sp.spline
-            self.concat.ix[j, 'resid'] = sp.resid
+            l = c.index[self.dbscan(sp.resid, eps=eps)]
+            o = c.index.symmetric_difference(l)
+            sp.fit(np.ma.MaskedArray(c, c.index.isin(o)), smooth, m - j[0])
+            self.out.ix[j, 'extra'] = sp.spline
+            self.out.ix[j, 'resid'] = sp.resid
             if len(o) > 0:
-                self.concat.loc[o, 'outliers'] = -1
+                outliers = np.where(self.var.ix[o, i:i+2].notnull())[1]
+                self.out.loc[o, 'outliers'] = i + np.unique(outliers).item()
                 self.starts[i+1] = self.var.index.get_loc(max(o)) + 1
                 self.ends[i] = self.var.index.get_loc(min(o)) - 1 # ``starts`` and ``ends`` give the actual indexes, not the slice arguments
             return {
                 'offs': sp.offset,
                 'kind': 'spline',
-                'stdev': sp.resid.std() / np.sqrt(len(j)),
+                'stdev': sp.resid.std() / np.sqrt(len(l)),
                 'orig_stdev' : orig_stdev
             }
 
     def traverse(self, smooth=10.):
-        self.knots = []
         offsets = pd.DataFrame()
-        file_names = self.var.columns.get_level_values('filename')
-        long_short = self.var.columns.get_level_values('long_short')
 
+        # first pass over all 'knots', offset computations
         for i, (b, c) in enumerate(zip(self.starts[1:], self.ends[:-1])):
-            # should always be the center (beginning of second in case of flush connection)
-            m = int(np.ceil((b + c) / 2))
-
             # if there's a gap or a flush connection
             if b - c > 0:
-                offs = self.spline(i, m, smooth=smooth)
+                offs = self.spline(i, smooth=smooth)
 
             # if there is overlap
             else:
                 offs = self.odr(i)
-                m = self.starts[i+1]
 
-            self.knots.append(m)
             offs.update({
-                'conn': '{}-{}'.format(*long_short[i:i+2]),
+                'conn': '{}-{}'.format(*self.long_short[i:i+2]),
                 'diff': self.var.ix[self.starts[i+1], i+1] - self.var.ix[self.ends[i], i]
             })
             offsets = offsets.append(offs, ignore_index=True)
 
+        # second pass over contiguous sequences of 'short' time series - offset *corrections*
         cols = offsets.columns.tolist()
         idx = offsets.columns.get_indexer(['offs', 'diff'])
         cols.extend(['corr_offs', 'diff_csum'])
+        c = self.contiguous(self.long_short == 'short')
         corr_offs = []
-        c = self.contiguous(long_short == 'short')
-        self.corr_offs = []
         for a, b in c:
+            a = max(a-1, 0)
             offs = offsets.iloc[a: b+1]
-            if a == 0 and long_short[0] == 'short':
+            if a == 0 and self.long_short[0] == 'short':
                 offs = pd.concat((offs, offs.iloc[::-1, idx].cumsum().iloc[::-1]), 1)
-                offs.index = file_names[a: b+1]
+                offs.index = self.file_names[a: b+1]
             else:
                 csum = - offs.iloc[:, idx].cumsum()
-                if long_short[b + 1] == 'long':
+                if self.long_short[b + 1] == 'long':
                     corr = offs.stdev
                     corr = - corr / corr.sum() * csum['offs'].iloc[-1]
                     csum = pd.concat((csum['offs'] + corr, csum['diff']), 1)
                 offs = pd.concat((offs, csum), 1)
-                offs.index = file_names[a+1: b+2]
+                offs.index = self.file_names[a+1: b+2]
             offs.columns = cols
             corr_offs.append(offs)
 
         self.offsets = pd.concat((corr_offs), keys=range(c.shape[0])).T
-        corr_offs = self.offsets.loc['corr_offs']
 
+    def concat(self, no_offset=[], smooth=5., half_length=20):
+        """Perform the actual concatenation.
+
+        :param no_offset: list of indexes of the columns in the ordered :attr:`var` :class:`LogFrame` whose computed offset should be skipped (i.e. set to zero)
+        :param smooth: smoothing spline smoothing parameter for spline-based interpolation of the missing values
+
+        """
         for i, (a, b) in enumerate(zip(self.starts, self.ends)):
-            offs = corr_offs.xs(file_names[i], level=1).item() if long_short[i] == 'short' else 0
-            self.concat.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] + offs
+            offs = 0.
+            if self.long_short[i] == 'short' and i not in no_offset:
+                offs = self.offsets.loc['corr_offs'].xs(self.file_names[i], level=1).item()
+            self.out.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] + offs
+
+        for i, (b, c) in enumerate(zip(self.starts[1:], self.ends[:-1])):
+            if b - c > 1:
+                m = int(np.ceil((b + c) / 2))
+                j = np.arange(m - half_length, m + half_length + 1)
+                mask = self.out.ix[j, 'outliers'].notnull()
+                sp = Bspline(j)
+                sp.fit(np.ma.MaskedArray(self.out.ix[j, 'concat'], mask), smooth)
+                self.out.ix[j, 'interp'] = sp.spline
+                self.out['concat'] = self.out['concat'].where(self.out['concat'].notnull(), self.out['interp'])
 
     # doesn't work if gaps aren't infilled!
     def ar(self, i, plot=False, ar=1, half_length=500):
-        long_short = self.var.columns.get_level_values('long_short')
-        a, b = self.contiguous(long_short == 'short')[i]
+        a, b = self.contiguous(self.long_short == 'short')[i]
+        a = max(a-1, 0)
 
         knots = self.knots[a: b+1]
         j = np.arange(max(0, knots[0] - half_length), min(self.var.shape[0]+ 1, knots[-1] + half_length + 1))
-        concat = self.concat.ix[j, 'concat']
+        concat = self.out.ix[j, 'concat']
         a = sm.tsa.AR(concat).fit(ar)
         r = [a.resid[self.var.index[k]] for k in knots]
         print(r)

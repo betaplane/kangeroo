@@ -119,19 +119,21 @@ class Plots(object):
 def concat(cc):
     fig, ax = plt.subplots()
     idx = cc.var.index
-    plt.plot(idx, cc.concat['concat'])
-    plt.plot(idx, cc.concat['extra'], 'rx-')
+    plt.plot(idx, cc.out['concat'])
+    plt.plot(idx, cc.out['extra'], 'rx-')
+    plt.plot(idx, cc.out['interp'], 'gx-')
 
     fn = cc.var.columns.names.index('filename')
     height = cc.var.short.shape[1]
-    o = cc.concat['outliers']
+    o = cc.out['outliers']
+    outliers_check = []
 
     j = 0
     for i, c in enumerate(cc.var.iteritems()):
+        y = c[1].dropna()
         if c[0][0] == 'long':
-            plt.plot(c[1].dropna(), 'k-')
+            plt.plot(y, 'k-')
         else:
-            y = c[1].dropna()
             start_t = y.index[0]
             p = plt.plot(y)[0]
 
@@ -140,17 +142,14 @@ def concat(cc):
             ax.annotate(c[0][fn], xy=(start_t, 1 - (1 + j) / height),
                         xycoords=('data', 'axes fraction'), color=p.get_color())
             j += 1
-        plt.plot(c[1][o == -2], 'mo')
 
-    for k in cc.knots:
-        ax.axvline(idx[k], color='g')
+        # outliers on overlaps
+        outliers = c[1][o == i].dropna()
+        plt.plot(outliers, 'mo', mfc='none')
 
-    # bx = ax.twinx()
-    # resid = cc.var['resid']
-    # bx.plot(idx, resid , color='r')
-    # i = np.where(np.abs(resid) > 6 * resid.std())[0]
-    outliers = cc.concat['concat'][o == -1]
-    ax.plot(outliers.where(outliers.notnull(), cc.concat['extra']), 'mo')
+    # # outliers on the splines
+    # outliers = cc.out['concat'][o == -1]
+    # ax.plot(outliers.where(outliers.notnull(), cc.out['extra']), 'mx')
 
     fig.show()
 

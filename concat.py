@@ -1,8 +1,9 @@
 """
 .. todo::
 
+    * use spline for problematic knots
     * simplify / streamline ``core`` DataFrame routines in light of current algorithm
-    * attach plot.concat to Concatenator
+        * mostly done
     * experiment with different smoothing parameters for the spline
     * use of previously removed dataseries (dispensables) for the offset confidence calculation
     * check other possibilities for confidence of offsets, e.g.
@@ -21,7 +22,7 @@ import scipy.odr as odr
 from sklearn.covariance import MinCovDet
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.cluster import DBSCAN
-import statsmodels.api as sm
+from statsmodels.api import tsa
 import matplotlib.pyplot as plt
 import os
 from warnings import catch_warnings, simplefilter
@@ -36,11 +37,11 @@ class Concatenator(Reader):
         cc = Concatenator(directory='data/4/1')
 
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, data_flag=None, time_adj=0, **kwargs)
-        var = self.level.organize_time()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        var = self.organize_time(self.level)
 
-        end_points = var.end_points
+        end_points = var.apply(self.get_start_end)
         starts = end_points.loc['start']
         ends = end_points.loc['end']
         D = self.distance(starts, ends)
@@ -62,17 +63,43 @@ class Concatenator(Reader):
 
         v = self.time_zone(var.iloc[:, order]).resample('30T').asfreq()
         self.delta = v.index.freq.delta.to_timedelta64()
-        self.pre_screen(v.dropna(0, 'all'), dispensable)
+        self.var = self.pre_screen(v, dispensable)
 
-        end_points = self.var.end_points
+        end_points = self.var.apply(self.get_start_end)
         self.starts = self.var.index.get_indexer(end_points.loc['start'])
         self.ends = self.var.index.get_indexer(end_points.loc['end'])
 
         self.out = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'extra', 'interp', 'outliers', 'concat'])
-        self.file_names = self.var.columns.get_level_values('filename')
-        self.long_short = self.var.columns.get_level_values('long_short')
+        self.file_names = self.var.columns.get_level_values('file')
+        self.long_short = self.var.columns.get_level_values('length')
+
         self.traverse()
         self.concat()
+
+    @staticmethod
+    def get_start_end(col):
+        x = col.dropna()
+        return pd.Series((x.index.min(), x.index.max()), index=['start', 'end'])
+
+    def organize_time(self, data, length=100):
+        """Split the LogFrame into two according to the length of the Series. Return either the column indexes for the long and short series, or a LogFrame with an added column level `length` with ``long`` and ``short`` labels.
+
+        :param length: Threshold which divides long from short time series (in days).
+        :returns: LogFrame with top column level labels ``long`` and ``short``
+        :rtype: :class:`LogFrame`
+
+        """
+        time = data.apply(self.get_start_end) #.sort_values('start', 1)
+        d = time.diff(1, 0).drop('start') # duration
+        l = d[d > pd.Timedelta(length, 'D')]
+        long = l.dropna(1)
+        short = d[l.isnull()].dropna(1)
+
+        df = pd.concat((data[long.columns], data[short.columns]), 1, keys=['long', 'short'])
+        names = data.columns.names.copy()
+        names.insert(0, 'length')
+        df.columns.names = names
+        return df
 
     def time_zone(self, var):
         phase = var.apply(self.phase, 0)
@@ -82,25 +109,24 @@ class Concatenator(Reader):
         a = var.iloc[:, cl == 1]
         b = var.iloc[:, cl == 2]
         a.index = a.index + pd.Timedelta(5, 'h')
-        a.columns = a.columns.set_levels([5], 'time_adj')
         print("The following files' timestamps have been changed by 5 hours:\n")
-        for f in a.columns.get_level_values('filename'):
+        for f in a.columns.get_level_values('file'):
             print(f)
         print('')
-        return pd.concat((a, b), 1)
+        return pd.concat((a, b), 1, keys=[5, 0], names=['time_adj'] + var.columns.names)
 
 
     def pre_screen(self, var, disp, thresh=10):
-        fx = var.columns.names.index('filename')
+        fx = var.columns.names.index('file')
         feat = pd.concat((var.mean(), var.std()), 1)
         mcd = MinCovDet().fit(feat)
         md = mcd.mahalanobis(feat)
         s = set(np.where(md > thresh)[0])
         k = s.intersection(disp).union(s.intersection({0, var.shape[1]}))
-        self.var = var.drop(var.columns[list(k)], axis=1)
         self.dispensable = list(set(disp) - k)
         for i in k:
             print('File {} removed from concatenation as unnecessary outlier.'.format(var.columns[i][fx]))
+        return var.drop(var.columns[list(k)], axis=1)
 
     @staticmethod
     def phase(x, p=86400):
@@ -112,19 +138,11 @@ class Concatenator(Reader):
         cycle = a * np.exp (1j * 2 * np.pi * t / p) / N
         return phase
 
-    def distance(self, start, stop):
+    @staticmethod
+    def distance(start, stop):
         d = (stop.values.reshape((1, -1)) - start.values.reshape((-1, 1))).astype('timedelta64[s]').astype(float)
         D = np.abs(d)
         return np.where(D < D.T, d, d.T) + np.diag(np.repeat(-np.inf, len(start)))
-
-    # remember, this returns the expected indexes -1, because this fits the need of some of the parts of the algorithm
-    @staticmethod
-    def _contiguous(s):
-        ds = np.diff(s.astype(int))
-        i = np.where(ds)[0]
-        if len(i) == 0:
-            return np.array([(0, len(s))])
-        return np.pad(i, ((ds[i[[0, -1]]] == [-1, 1]).astype(int)), 'linear_ramp', end_values = [0, len(s)]).reshape((-1, 2))
 
     @staticmethod
     def contiguous(s):
@@ -136,11 +154,16 @@ class Concatenator(Reader):
         return np.vstack((starts, ends)).T
 
     # this is the outlier detection routine, using DBSCAN on either the differences (overlap) or residuals (spline)
-    def dbscan(self, resid, return_labels=False, contiguous=False, eps=2):
-        db = DBSCAN(eps=eps).fit(resid.reshape((-1, 1)))
+    def dbscan(self, resid, return_labels=False, contiguous=False, masked=False, eps=2):
+        x = resid[~resid.mask] if masked else resid
+        db = DBSCAN(eps=eps).fit(x.reshape((-1, 1)))
         labels, counts = np.unique(db.labels_, return_counts=True)
         l = labels[counts.argmax()] == db.labels_
-        if contiguous:
+        if masked: # this is only relevant for the spline overlaps
+            L = np.zeros(len(resid)).astype(bool)
+            L[~resid.mask] = l
+            l = L
+        if contiguous: # this is only relevant for the odr overlaps
             j = self.contiguous(l)
             a, b = j[np.diff(j, 1, 1).argmax(), :]
             l = slice(a, b+1)
@@ -152,7 +175,7 @@ class Concatenator(Reader):
 
         # outliers are detected from the differenc between the two series
         diff = c.diff(1, 1).values[:, 1]
-        k, labels = self.dbscan(diff, True, True, eps)
+        k, labels = self.dbscan(diff, True, True, eps=eps)
 
         x, y = c.iloc[k].values.T
         o = odr.ODR(odr.Data(x, y), odr.models.unilinear, beta0=[1, 0]).run()
@@ -203,31 +226,31 @@ class Concatenator(Reader):
         sp.fit(c, smooth)
         orig_stdev = sp.resid.std() / np.sqrt(len(j))
 
+        labels = self.dbscan(sp.resid, eps=eps, return_labels=plot, masked=True)
         if plot:
             fig, axs = plt.subplots(1, 2, figsize=(12, 5))
             colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
             t = c.index
-            for k, l in enumerate(sorted(labels)):
-                h = db.labels_ == l
+            for k, h in enumerate(labels[1]):
                 axs[0].plot(t[h], c.loc[h], 'o', color=colors[k])
                 axs[1].plot(t[h], sp.resid[h], 'o', color=colors[k])
             axs[0].plot(t, sp.spline, 'x-', color=colors[k+1])
             plt.show()
         else:
-            l = c.index[self.dbscan(sp.resid, eps=eps)]
-            o = c.index.symmetric_difference(l)
-            sp.fit(np.ma.MaskedArray(c, c.index.isin(o)), smooth, m - j[0])
+            o = c.index.symmetric_difference(c.index[labels])
+            sp.fit(np.ma.MaskedArray(c, ~labels), smooth, m - j[0])
             self.out.ix[j, 'extra'] = sp.spline
             self.out.ix[j, 'resid'] = sp.resid
             if len(o) > 0:
                 outliers = np.where(self.var.ix[o, i:i+2].notnull())[1]
-                self.out.loc[o, 'outliers'] = i + np.unique(outliers).item()
+                if len(outliers) > 0: # could be a gap
+                    self.out.loc[o, 'outliers'] = i + np.unique(outliers).item()
                 self.starts[i+1] = self.var.index.get_loc(max(o)) + 1
                 self.ends[i] = self.var.index.get_loc(min(o)) - 1 # ``starts`` and ``ends`` give the actual indexes, not the slice arguments
             return {
                 'offs': sp.offset,
                 'kind': 'spline',
-                'stdev': sp.resid.std() / np.sqrt(len(l)),
+                'stdev': sp.resid.std() / np.sqrt(labels.astype(int).sum()),
                 'orig_stdev' : orig_stdev
             }
 
@@ -306,7 +329,7 @@ class Concatenator(Reader):
         knots = self.knots[a: b+1]
         j = np.arange(max(0, knots[0] - half_length), min(self.var.shape[0]+ 1, knots[-1] + half_length + 1))
         concat = self.out.ix[j, 'concat']
-        a = sm.tsa.AR(concat).fit(ar)
+        a = tsa.AR(concat).fit(ar)
         r = [a.resid[self.var.index[k]] for k in knots]
         print(r)
 
@@ -322,3 +345,34 @@ class Concatenator(Reader):
         else:
             return r
 
+    def plot(self):
+        fig, ax = plt.subplots()
+        idx = self.var.index
+        plt.plot(idx, self.out['concat'])
+        plt.plot(idx, self.out['extra'], 'rx-')
+        plt.plot(idx, self.out['interp'], 'gx-')
+
+        fn = self.var.columns.names.index('file')
+        le = self.var.columns.names.index('length')
+        height = self.var.columns.get_level_values('length').str.contains('short').astype(int).sum()
+        o = self.out['outliers']
+
+        j = 0
+        for i, c in enumerate(self.var.iteritems()):
+            y = c[1].dropna()
+            if c[0][le] == 'long':
+                plt.plot(y, 'k-')
+            else:
+                start_t = y.index[0]
+                p = plt.plot(y)[0]
+
+                ax.axvspan(idx[self.starts[i]], idx[self.ends[i]], alpha=.4, facecolor=p.get_color())
+
+                ax.annotate(c[0][fn], xy=(start_t, 1 - (1 + j) / height),
+                            xycoords=('data', 'axes fraction'), color=p.get_color())
+                j += 1
+
+            outliers = c[1][o == i].dropna()
+            plt.plot(outliers, 'mo', mfc='none')
+
+        fig.show()

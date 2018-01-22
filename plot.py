@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
+from statsmodels.api import tsa
 
 
 def get_time_ranges(column):
@@ -29,7 +30,7 @@ def cut_ends(df, std=3, lag=1, residuals=False):
     flags = d.xs('flag', 1, 'data_flag').copy()
     x = d.xs('data', 1, 'data_flag')
     t = np.array(x.index, dtype='datetime64')
-    r = ar_model.AR(x, t).fit(lag).resid
+    r = tsa.AR(x, t).fit(lag).resid
     c = r.sort_values()[[0, -1]]
     cut_points = c[c.abs() > std * r.std()]
     if not cut_points.empty:
@@ -46,6 +47,16 @@ def cut_ends(df, std=3, lag=1, residuals=False):
     return (df, r) if residuals else df
 
 
+def time_ranges(df):
+    """Return a list of ranges (start, end) of the data that have been used in a concatenation, as reconstructed from one columns of a DataFrame of (1, 0) flags. The flag LogFrame can be obtained by a call to :meth:`load_flags`. The arguments needs to be a proper :class:`~pandas.DataFrame` / :class:`LogFrame` (as opposed to a :class:`~pandas.Series`) - see use in :meth:`plot`.
+
+    """
+    if df.flag.columns.get_level_values('data_flag').unique().item() == 'flag':
+        return df.flag.apply(get_time_ranges)
+    else:
+        return df.notnull().astype(int).apply(get_time_ranges)
+
+
 class Plots(object):
     def __init__(self, df):
         self.df = df
@@ -56,7 +67,7 @@ class Plots(object):
 
         # need to sort the series first by start time
         if flags is None:
-            time_ranges = self.df.time_ranges
+            time_ranges = time_ranges(self.df)
         else:
             flags.apply(get_time_ranges)
 
@@ -116,49 +127,3 @@ class Plots(object):
             return p[0]
 
 
-def concat(cc):
-    fig, ax = plt.subplots()
-    idx = cc.var.index
-    plt.plot(idx, cc.out['concat'])
-    plt.plot(idx, cc.out['extra'], 'rx-')
-    plt.plot(idx, cc.out['interp'], 'gx-')
-
-    fn = cc.var.columns.names.index('filename')
-    height = cc.var.short.shape[1]
-    o = cc.out['outliers']
-    outliers_check = []
-
-    j = 0
-    for i, c in enumerate(cc.var.iteritems()):
-        y = c[1].dropna()
-        if c[0][0] == 'long':
-            plt.plot(y, 'k-')
-        else:
-            start_t = y.index[0]
-            p = plt.plot(y)[0]
-
-            ax.axvspan(idx[cc.starts[i]], idx[cc.ends[i]], alpha=.4, facecolor=p.get_color())
-
-            ax.annotate(c[0][fn], xy=(start_t, 1 - (1 + j) / height),
-                        xycoords=('data', 'axes fraction'), color=p.get_color())
-            j += 1
-
-        # outliers on overlaps
-        outliers = c[1][o == i].dropna()
-        plt.plot(outliers, 'mo', mfc='none')
-
-    # # outliers on the splines
-    # outliers = cc.out['concat'][o == -1]
-    # ax.plot(outliers.where(outliers.notnull(), cc.out['extra']), 'mx')
-
-    fig.show()
-
-
-def files(x):
-    fig, ax = plt.subplots()
-
-    fn = x.index.names.index('filename')
-
-    for i, r in x.iterrows():
-        ax.scatter(r[0], r[1])
-        ax.annotate(i[fn], xy=r)

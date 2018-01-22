@@ -36,7 +36,13 @@ extensions = ['sphinx.ext.autodoc',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
     'sphinx.ext.githubpages',
-    'sphinxcontrib.bibtex']
+    'sphinxcontrib.bibtex',
+    'sphinx.ext.ifconfig'
+]
+
+def setup(app):
+    app.add_config_value('githubpages', False, 'env')
+
 
 from unittest.mock import MagicMock
 class Mock(MagicMock):

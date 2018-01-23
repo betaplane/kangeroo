@@ -1,9 +1,10 @@
 """
 .. todo::
 
-    * use spline for problematic knots
     * simplify / streamline ``core`` DataFrame routines in light of current algorithm
         * mostly done
+        * add setup.py
+        * figure out github pages
     * experiment with different smoothing parameters for the spline
     * use of previously removed dataseries (dispensables) for the offset confidence calculation
     * check other possibilities for confidence of offsets, e.g.
@@ -12,6 +13,7 @@
 Other remarks
 -------------
     * If the dbscan outlier routine goes haywire, an alternative to choosing the cluster with the most members could be to fit a regression to each cluster and chose the one with the slope closest to one.
+    * Also, the outlier detection cannot detect outliers at the same location in two overlapping time series, since it only works relative.
 
 """
 
@@ -75,6 +77,7 @@ class Concatenator(Reader):
 
         self.traverse()
         self.concat()
+        print('')
 
     @staticmethod
     def get_start_end(col):
@@ -85,7 +88,8 @@ class Concatenator(Reader):
         """Split the LogFrame into two according to the length of the Series. Return either the column indexes for the long and short series, or a LogFrame with an added column level `length` with ``long`` and ``short`` labels.
 
         :param length: Threshold which divides long from short time series (in days).
-        :returns: LogFrame with top column level labels ``long`` and ``short``
+        :returns: LogFrame with top column level labels ``long`` and ``short        print('')
+``
         :rtype: :class:`LogFrame`
 
         """
@@ -109,10 +113,9 @@ class Concatenator(Reader):
         a = var.iloc[:, cl == 1]
         b = var.iloc[:, cl == 2]
         a.index = a.index + pd.Timedelta(5, 'h')
-        print("The following files' timestamps have been changed by 5 hours:\n")
+        print("\nThe following files' timestamps have been changed by 5 hours:\n")
         for f in a.columns.get_level_values('file'):
             print(f)
-        print('')
         return pd.concat((a, b), 1, keys=[5, 0], names=['time_adj'] + var.columns.names)
 
 
@@ -124,8 +127,9 @@ class Concatenator(Reader):
         s = set(np.where(md > thresh)[0])
         k = s.intersection(disp).union(s.intersection({0, var.shape[1]}))
         self.dispensable = list(set(disp) - k)
+        print('\n\nThe following files have been removed from the concatenation as unnecessary outliers:\n')
         for i in k:
-            print('File {} removed from concatenation as unnecessary outlier.'.format(var.columns[i][fx]))
+            print(var.columns[i][fx])
         return var.drop(var.columns[list(k)], axis=1)
 
     @staticmethod
@@ -298,10 +302,11 @@ class Concatenator(Reader):
 
         self.offsets = pd.concat((corr_offs), keys=range(c.shape[0])).T
 
-    def concat(self, no_offset=[], smooth=5., half_length=20):
+    def concat(self, no_offset=[], use_spline=[], smooth=5., half_length=20, slope_thresh=0.2):
         """Perform the actual concatenation.
 
-        :param no_offset: list of indexes of the columns in the ordered :attr:`var` :class:`LogFrame` whose computed offset should be skipped (i.e. set to zero)
+        :param no_offset: list of indexes of columns in the ordered :attr:`var` DataFrame whose computed offset should be skipped (i.e. set to zero)
+        :param use_spline: list of top-level indexes in the :attr:`offsets` DataFrame (corresponding to the colored sections of the plot produced by :meth:`plot`) to which spline-based interpolation should be applied
         :param smooth: smoothing spline smoothing parameter for spline-based interpolation of the missing values
 
         """
@@ -320,6 +325,41 @@ class Concatenator(Reader):
                 sp.fit(np.ma.MaskedArray(self.out.ix[j, 'concat'], mask), smooth)
                 self.out.ix[j, 'interp'] = sp.spline
                 self.out['concat'] = self.out['concat'].where(self.out['concat'].notnull(), self.out['interp'])
+
+        if len(use_spline) == 0:
+            s = self.offsets.loc['odr_slope']
+            c = s[np.abs(s - 1) > slope_thresh].index.get_level_values(0)
+            print('\n\nThe following transitions have slope abnormalities:\n')
+            for i in c:
+                print(self.offsets[i])
+        else:
+            for i in use_spline:
+                j = self.file_names.get_indexer(self.offsets[i].columns)
+                start = self.var.iloc[:, j[0]].dropna().index.min()
+                end = self.var.iloc[:, j[-2]].dropna().index.max()
+                start, end = self.var.index.get_indexer([start, end]) + half_length * np.array([-1, 1])
+                if j[0] > 0:
+                    j = np.r_[j[0]-1 , j]
+                # from IPython.core.debugger import Tracer;Tracer()()
+                b = self.out['outliers'].values.reshape((-1, 1)) != j.reshape((1, -1))
+                x = self.var.iloc[:, j].where(b, np.nan).iloc[start: end+1, :]
+                y = pd.concat([c for _, c in x.iteritems()], 0).dropna()
+                sp = Bspline(y.index)
+                sp.fit(y, smooth)
+                z = pd.Series(sp.spline, index=y.index).drop_duplicates()
+                self.out.loc[z.index, 'interp'] = z
+                self.out.loc[z.index, 'concat'] = z
+
+    def merge_info(self):
+        cols = self.var.columns.to_frame()
+        cols['start'] = self.var.index[self.starts]
+        cols['end'] = self.var.index[self.ends]
+        offs = self.offsets.T.reset_index()[['file','corr_offs']]
+        cols = cols.merge(offs, on='file', how='outer')
+        # cols = cols[['']]
+        self.var.columns = pd.MultiIndex.from_tuples(list(cols.as_matrix()))
+        self.var.columns.names = cols.columns
+
 
     # doesn't work if gaps aren't infilled!
     def ar(self, i, plot=False, ar=1, half_length=500):

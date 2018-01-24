@@ -1,14 +1,23 @@
 """
-Overview
---------
+Technical Aspects
+-----------------
 
 The concatenation follows the following steps:
 
-#. The csv files are read in and placed in a :class:`~pandas.DataFrame` attached to the :class:`.Reader` as :attr:`~.Reader.data`. This is handled by :mod:`kangeroo.core`.
+#. The csv files are read in and placed in a :class:`~pandas.DataFrame` attached to the :class:`.Reader` as :attr:`~.Reader.data`. This is handled by :mod:`kangeroo.core`, while everything that follows below is contained in :mod:`kangeroo.concat`.
+
+#. The individual time series (columns in the :class:`~pandas.DataFrame` :attr:`~.Reader.data`) are sorted into 'long' and 'short' ones based on a length threshold, in :meth:`~Concatenator.organize_time`. The default threshold is 100 days. Only 'short' time series will later be adjusted by a potential additive offset.
 
 #. A distance measure is computed in time which corresponds to the temporal gap or overlap between any two timeseries. An overlap has negative distance. The :func:`Dijkstra <scipy.sparse.csgraph.dijkstra>` algorithm is then used to find the path through this graph which prefers the largest overlaps.
 
+#. An attempt is being made to detect which of the time series were collected with a wrong time zone setting. To improve the changes of success, it is assumed that there are two contiguous blocks within wich the setting is the same. The detection is based on computing the phase of the daily cycle, in :meth:`.phase`, by means of a trigonometric projection, and fitting of a :class:`~sklearn.tree.DecisionTreeRegressor`, in :meth:`time_zone`.
+
+#. The original time series are resampled using the :meth:`pandas.DataFrame.resample` method, currently at a 30 min interval.
+
 #. If there are overlapping timeseries where the removal of one series results in two others being separated only by a time less than a certain threshold (param ``dispensable_thresh`` in the :class:`.Concatenator` constructor, default 3600 seconds), **and** if this 'dispensable' time series is labeled as on outlier by a test checking its mean and standard deviation against that of the other time series (:meth:`.pre_screen`), that series is removed before any further processing is undertaken.
+
+Usage
+-----
 
 .. todo::
 
@@ -18,7 +27,7 @@ The concatenation follows the following steps:
         * figure out github pages
     * linear segment as offset instead of constant
     * experiment with different smoothing parameters for the spline
-    * use of previously removed dataseries (dispensables) for the offset confidence calculation
+    * use of previously removed dataseries (dispensables) fohave had theirr the offset confidence calculation
     * allow for skipping of non-necessary files after the first round
         * will require spline and/or overlap routins that don't recompute outliers **and** reset the :attr:`starts` / :attr:`ends`
     * check other possibilities for confidence of offsets, e.g.

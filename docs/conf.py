@@ -183,5 +183,6 @@ intersphinx_mapping = {
     'np': ('https://docs.scipy.org/doc/numpy/', None),
     'sp': ('https://docs.scipy.org/doc/scipy/reference/', None),
     'pd': ('http://pandas.pydata.org/pandas-docs/stable/', None),
-    'sqla': ('http://docs.sqlalchemy.org/en/latest/', None)
+    'sqla': ('http://docs.sqlalchemy.org/en/latest/', None),
+    'skl': ('http://scikit-learn.org/stable/', None)
 }

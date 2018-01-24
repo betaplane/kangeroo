@@ -181,6 +181,7 @@ texinfo_documents = [
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
     'np': ('https://docs.scipy.org/doc/numpy/', None),
+    'sp': ('https://docs.scipy.org/doc/scipy/reference/', None),
     'pd': ('http://pandas.pydata.org/pandas-docs/stable/', None),
     'sqla': ('http://docs.sqlalchemy.org/en/latest/', None)
 }

@@ -10,11 +10,6 @@ Welcome to kangeroo's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-Database
---------
-.. automodule:: kangeroo.database
-   :members:
-
 Reading Log Files
 -----------------
 .. automodule:: kangeroo.core
@@ -25,17 +20,15 @@ Concatenation
 .. automodule:: kangeroo.concat
    :members:
 
-Plotting
---------
-.. automodule:: kangeroo.plot
-   :members:
-
 B-splines
 ---------
 .. automodule:: kangeroo.bspline
    :members:
 
-.. _TensorFlow: https://www.tensorflow.org/api_docs/
+Database
+--------
+.. automodule:: kangeroo.database
+   :members:
 
 Indices and tables
 ==================

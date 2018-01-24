@@ -1,12 +1,26 @@
 """
+Overview
+--------
+
+The concatenation follows the following steps:
+
+#. The csv files are read in and placed in a :class:`~pandas.DataFrame` attached to the :class:`.Reader` as :attr:`~.Reader.data`. This is handled by :mod:`kangeroo.core`.
+
+#. A distance measure is computed in time which corresponds to the temporal gap or overlap between any two timeseries. An overlap has negative distance. The :func:`Dijkstra <scipy.sparse.csgraph.dijkstra>` algorithm is then used to find the path through this graph which prefers the largest overlaps.
+
+#. If there are overlapping timeseries where the removal of one series results in two others being separated only by a time less than a certain threshold (param ``dispensable_thresh`` in the :class:`.Concatenator` constructor, default 3600 seconds), **and** if this 'dispensable' time series is labeled as on outlier by a test checking its mean and standard deviation against that of the other time series (:meth:`.pre_screen`), that series is removed before any further processing is undertaken.
+
 .. todo::
 
     * simplify / streamline ``core`` DataFrame routines in light of current algorithm
         * mostly done
         * add setup.py
         * figure out github pages
+    * linear segment as offset instead of constant
     * experiment with different smoothing parameters for the spline
     * use of previously removed dataseries (dispensables) for the offset confidence calculation
+    * allow for skipping of non-necessary files after the first round
+        * will require spline and/or overlap routins that don't recompute outliers **and** reset the :attr:`starts` / :attr:`ends`
     * check other possibilities for confidence of offsets, e.g.
         * R^2 / generalized OLS ideas
 
@@ -14,6 +28,8 @@ Other remarks
 -------------
     * If the dbscan outlier routine goes haywire, an alternative to choosing the cluster with the most members could be to fit a regression to each cluster and chose the one with the slope closest to one.
     * Also, the outlier detection cannot detect outliers at the same location in two overlapping time series, since it only works relative.
+
+.. bibliography:: kangeroo.bib
 
 """
 
@@ -36,12 +52,13 @@ class Concatenator(Reader):
     """
     Usage example::
 
-        cc = Concatenator(directory='data/4/1')
+        cc = Concatenator(directory='data/4/1', var='level)
 
     """
-    def __init__(self, **kwargs):
+    def __init__(self, var, dispensable_thresh=3600, **kwargs):
         super().__init__(**kwargs)
-        var = self.organize_time(self.level)
+        var = self.organize_time(self.data.xs(var, 1, 'var'))
+        self.variable = var
 
         end_points = var.apply(self.get_start_end)
         starts = end_points.loc['start']
@@ -60,37 +77,31 @@ class Concatenator(Reader):
         while order[-1] != end:
             order.append(p[end, order[-1]])
             d = D[order[-1], order[-3]]
-            if d > -3600:
+            if d > -dispensable_thresh:
                 dispensable.append(len(order) - 2)
 
         v = self.time_zone(var.iloc[:, order]).resample('30T').asfreq()
         self.delta = v.index.freq.delta.to_timedelta64()
         self.var = self.pre_screen(v, dispensable)
-
-        end_points = self.var.apply(self.get_start_end)
-        self.starts = self.var.index.get_indexer(end_points.loc['start'])
-        self.ends = self.var.index.get_indexer(end_points.loc['end'])
-
         self.out = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'extra', 'interp', 'outliers', 'concat'])
-        self.file_names = self.var.columns.get_level_values('file')
-        self.long_short = self.var.columns.get_level_values('length')
 
         self.traverse()
         self.concat()
         print('')
 
-    @staticmethod
-    def get_start_end(col):
-        x = col.dropna()
-        return pd.Series((x.index.min(), x.index.max()), index=['start', 'end'])
+    def prepare(self):
+        end_points = self.var.apply(self.get_start_end)
+        self.starts = self.var.index.get_indexer(end_points.loc['start'])
+        self.ends = self.var.index.get_indexer(end_points.loc['end'])
+        self.file_names = self.var.columns.get_level_values('file')
+        self.long_short = self.var.columns.get_level_values('length')
 
     def organize_time(self, data, length=100):
-        """Split the LogFrame into two according to the length of the Series. Return either the column indexes for the long and short series, or a LogFrame with an added column level `length` with ``long`` and ``short`` labels.
+        """Reorganize a :class:`~pandas.DataFrame` according to the length of the Series.
 
         :param length: Threshold which divides long from short time series (in days).
-        :returns: LogFrame with top column level labels ``long`` and ``short        print('')
-``
-        :rtype: :class:`LogFrame`
+        :returns: DataFrame with :class:`~pandas.MultiIndex` in the columns with topmost level ``length`` containing the labels ``long`` and ``short``
+        :rtype: :class:`~pandas.DataFrame`
 
         """
         time = data.apply(self.get_start_end) #.sort_values('start', 1)
@@ -99,10 +110,7 @@ class Concatenator(Reader):
         long = l.dropna(1)
         short = d[l.isnull()].dropna(1)
 
-        df = pd.concat((data[long.columns], data[short.columns]), 1, keys=['long', 'short'])
-        names = data.columns.names.copy()
-        names.insert(0, 'length')
-        df.columns.names = names
+        df = pd.concat((data[long.columns], data[short.columns]), 1, keys=['long', 'short'], names=['length'] + data.columns.names)
         return df
 
     def time_zone(self, var):
@@ -120,6 +128,9 @@ class Concatenator(Reader):
 
 
     def pre_screen(self, var, disp, thresh=10):
+        """Uses Minimum Covariance Determinand / Mahalanobis distance ideas to detect outliers, loosely based on :cite:`chawla_k-means:_2013`.
+
+        """
         fx = var.columns.names.index('file')
         feat = pd.concat((var.mean(), var.std()), 1)
         mcd = MinCovDet().fit(feat)
@@ -131,6 +142,11 @@ class Concatenator(Reader):
         for i in k:
             print(var.columns[i][fx])
         return var.drop(var.columns[list(k)], axis=1)
+
+    @staticmethod
+    def get_start_end(col):
+        x = col.dropna()
+        return pd.Series((x.index.min(), x.index.max()), index=['start', 'end'])
 
     @staticmethod
     def phase(x, p=86400):
@@ -221,9 +237,9 @@ class Concatenator(Reader):
                 'RSS2': np.mean(o.eps ** 2),
             }
 
-    def spline(self, i, plot=False, smooth = 10., eps=2, half_length=20):
+    def spline(self, i, plot=False, smooth = 10., eps=2, pad=20):
         m = int(np.ceil((self.starts[i+1] + self.ends[i]) / 2))
-        j = np.arange(m - half_length, m + half_length + 1)
+        j = np.arange(m - pad, m + pad + 1)
 
         c = self.var.iloc[j, i:i+2].sum(1, skipna=True) # this is a hack, only works if there is no overlap of course!
         sp = Bspline(j)
@@ -259,6 +275,7 @@ class Concatenator(Reader):
             }
 
     def traverse(self, smooth=10.):
+        self.prepare()
         offsets = pd.DataFrame()
 
         # first pass over all 'knots', offset computations
@@ -302,42 +319,62 @@ class Concatenator(Reader):
 
         self.offsets = pd.concat((corr_offs), keys=range(c.shape[0])).T
 
-    def concat(self, no_offset=[], use_spline=[], smooth=5., half_length=20, slope_thresh=0.2):
+    def print_offsets(self, columns=['corr_offs', 'odr_slope']):
+        """Print the offset table in slightly more readable format, with the indexes that can be used for the parameter ``no_offset`` in :meth:`concat` in column ``idx`` and the 'transition zone' index as the left-most level in the hierarchical index, which can be used for the parameter ``use_spline`` in :meth:`concat`. Columns to be printed can be given as kwarg ``columns``.
+        """
+        offs = self.offsets.T
+        offs['idx'] = range(offs.shape[0])
+        print(offs[['idx']+columns])
+
+    def concat(self, no_offset=[], use_spline=[], smooth_spline=5., pad_spline=20, slope_tol=0.2):
         """Perform the actual concatenation.
 
         :param no_offset: list of indexes of columns in the ordered :attr:`var` DataFrame whose computed offset should be skipped (i.e. set to zero)
+        :type no_offset: :obj:`list`
         :param use_spline: list of top-level indexes in the :attr:`offsets` DataFrame (corresponding to the colored sections of the plot produced by :meth:`plot`) to which spline-based interpolation should be applied
-        :param smooth: smoothing spline smoothing parameter for spline-based interpolation of the missing values
+        :type use_spline: :obj:`list`
+        :param smooth_spline: smoothing parameter for spline-based interpolation of the missing values
+        :type smooth_spline: :obj:`float``
+        :param pad_spline: Padding, in integer indexes, on either side of the transition zone across which a smoothing spline should be fit (roughly equivalent to parameter ``pad`` in :meth:`spline`)
+        :type pad_spline: :obj:`int`
+        :param slope_tol: deviation from a slope of 1 in the regression of two series in an overlap region which is tolerated without printing a message
+        :type slope_tol: :obj:`float`
 
         """
+        no_offs = self.offsets.columns[no_offset].get_level_values('file')
         for i, (a, b) in enumerate(zip(self.starts, self.ends)):
-            offs = 0.
-            if self.long_short[i] == 'short' and i not in no_offset:
-                offs = self.offsets.loc['corr_offs'].xs(self.file_names[i], level=1).item()
+            fn = self.file_names[i]
+            if self.long_short[i] == 'short':
+                c = self.offsets.xs(fn, 1, 'file', drop_level=False)
+                if fn not in no_offs:
+                    offs = self.offsets.loc['corr_offs', c.columns].item()
+                else:
+                    self.offsets.loc['corr_offs', c.columns] = 0.
+                    offs = 0.
             self.out.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] + offs
 
         for i, (b, c) in enumerate(zip(self.starts[1:], self.ends[:-1])):
             if b - c > 1:
                 m = int(np.ceil((b + c) / 2))
-                j = np.arange(m - half_length, m + half_length + 1)
+                j = np.arange(m - pad_spline, m + pad_spline + 1)
                 mask = self.out.ix[j, 'outliers'].notnull()
                 sp = Bspline(j)
-                sp.fit(np.ma.MaskedArray(self.out.ix[j, 'concat'], mask), smooth)
+                sp.fit(np.ma.MaskedArray(self.out.ix[j, 'concat'], mask), smooth_spline)
                 self.out.ix[j, 'interp'] = sp.spline
                 self.out['concat'] = self.out['concat'].where(self.out['concat'].notnull(), self.out['interp'])
 
         if len(use_spline) == 0:
             s = self.offsets.loc['odr_slope']
-            c = s[np.abs(s - 1) > slope_thresh].index.get_level_values(0)
+            c = s[np.abs(s - 1) > slope_tol].index.get_level_values(0)
             print('\n\nThe following transitions have slope abnormalities:\n')
             for i in c:
-                print(self.offsets[i])
+                print(i, self.offsets[i].columns.tolist())
         else:
             for i in use_spline:
                 j = self.file_names.get_indexer(self.offsets[i].columns)
                 start = self.var.iloc[:, j[0]].dropna().index.min()
                 end = self.var.iloc[:, j[-2]].dropna().index.max()
-                start, end = self.var.index.get_indexer([start, end]) + half_length * np.array([-1, 1])
+                start, end = self.var.index.get_indexer([start, end]) + pad_spline * np.array([-1, 1])
                 if j[0] > 0:
                     j = np.r_[j[0]-1 , j]
                 # from IPython.core.debugger import Tracer;Tracer()()
@@ -345,29 +382,37 @@ class Concatenator(Reader):
                 x = self.var.iloc[:, j].where(b, np.nan).iloc[start: end+1, :]
                 y = pd.concat([c for _, c in x.iteritems()], 0).dropna()
                 sp = Bspline(y.index)
-                sp.fit(y, smooth)
+                sp.fit(y, smooth_spline)
                 z = pd.Series(sp.spline, index=y.index).drop_duplicates()
                 self.out.loc[z.index, 'interp'] = z
                 self.out.loc[z.index, 'concat'] = z
 
     def merge_info(self):
-        cols = self.var.columns.to_frame()
+        cols = self.var.columns.to_frame(False)
         cols['start'] = self.var.index[self.starts]
         cols['end'] = self.var.index[self.ends]
         offs = self.offsets.T.reset_index()[['file','corr_offs']]
         cols = cols.merge(offs, on='file', how='outer')
-        # cols = cols[['']]
-        self.var.columns = pd.MultiIndex.from_tuples(list(cols.as_matrix()))
-        self.var.columns.names = cols.columns
+        cols.loc[cols['length']=='long', 'corr_offs'] = 0.
+        var = self.var.copy()
+        var.columns = pd.MultiIndex.from_tuples(list(cols.as_matrix()))
+        var.columns.names = cols.columns
+        return var
+
+    def to_csv(self):
+        var = self.merge_info()
+        var.to_csv(os.path.join(self.directory, 'out', 'input.csv'))
+        self.out.to_csv(os.path.join(self.directory, 'out', 'output.csv'))
+        self.offsets.T.to_csv(os.path.join(self.directory, 'out', 'offsets.csv'))
 
 
     # doesn't work if gaps aren't infilled!
-    def ar(self, i, plot=False, ar=1, half_length=500):
+    def ar(self, i, plot=False, ar=1, pad=500):
         a, b = self.contiguous(self.long_short == 'short')[i]
         a = max(a-1, 0)
 
         knots = self.knots[a: b+1]
-        j = np.arange(max(0, knots[0] - half_length), min(self.var.shape[0]+ 1, knots[-1] + half_length + 1))
+        j = np.arange(max(0, knots[0] - pad), min(self.var.shape[0]+ 1, knots[-1] + pad + 1))
         concat = self.out.ix[j, 'concat']
         a = tsa.AR(concat).fit(ar)
         r = [a.resid[self.var.index[k]] for k in knots]

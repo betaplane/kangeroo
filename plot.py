@@ -67,13 +67,13 @@ class Plots(object):
 
         # need to sort the series first by start time
         if flags is None:
-            time_ranges = time_ranges(self.df)
+            ranges = time_ranges(self.df)
         else:
             flags.apply(get_time_ranges)
 
-        sorted_index = time_ranges.loc[0].apply(lambda c:c[0]).sort_values().index
+        sorted_index = ranges.loc[0].apply(lambda c:c[0]).sort_values().index
         names = sorted_index.get_level_values('filename')
-        indexer = time_ranges.columns.get_indexer(sorted_index)
+        indexer = ranges.columns.get_indexer(sorted_index)
         height = len(names)
 
         used_or_not = {True:[], False:[]}
@@ -82,7 +82,7 @@ class Plots(object):
             p = self.flagged(d, ax, cut_ends=cut_ends, residuals=False)
             u = False
             try:
-                spans = time_ranges.xs(name, 1, 'filename')
+                spans = ranges.xs(name, 1, 'filename')
                 for _, span in spans.iterrows():
                     a, b = span.item()
                     ymin = 1-(1+i)/height

@@ -21,6 +21,9 @@ class Reader(object):
         * **directory** - The directory from which the data logger files are to be read.
         * **copy** - If ``copy=Reader`` where ``Reader`` is an instance of the :class:`Reader` class, the data attributes are simply copied over so that the don't need to be read again from the original files. This is for development and will be removed later.
 
+    .. attribute:: data
+
+        The :class:`~pandas.DataFrame` containing the read-in data with a :class:`~pandas.DatetimeIndex` and the columns corresponding to the files in ``directory``
     """
 
     logger_columns = [
@@ -34,8 +37,10 @@ class Reader(object):
         if directory is not None:
             files = glob(os.path.join(directory, '*.csv'))
             self.data = pd.concat([self.read(f) for f in files], 1)
+            self.directory = directory
         else:
             self.data = copy.data
+            self.directory = copy.directory
 
         self.temp = self.data.xs('temp', 1, 'var')
         self.level = self.data.xs('level', 1, 'var')
@@ -56,21 +61,14 @@ class Reader(object):
     @classmethod
     def read(cls, filename):
         """Read a data logger .csv file and return a dictionary of DataFrames for individual columns of the file. Each DataFrame contains one column with the data and one column with a flag value (for subsequent use) which is set to 1 for each record. The :class:`~pandas.MultiIndex` has the levels:
-            * *variable* - the variable name (from the logger file)
-            * *in_out* - whether this is raw data ('in') or concatenated ('out')
-            * *filename* - the original filename (without extension) from which the data was read
-            * *id* - probably just the id of the field in the old 'databarc' database, 0. for newer data
-            * *offset* - any additive offset applied to the data when used in a concatenation (the data in the columns is left unchanged)
-            * *data_flag* - whether this is a data or a flag column
+            * *file* - the original filename (without extension) from which the data was read
+            * *var* - the variable name (from the logger file)
 
         The columns which are read are given in the :attr:`logger_columns` class variable.
 
         :param filename: csv file to be read
         :returns: DataFrame with metadata in the columns :class:`~pandas.MultiIndex` and a :class:`~pandas.DatetimeIndex` as index. The timestamps are constructed from the columns 'Date' and 'Time' in the datalogger files.
         :rtype: :class:`~pandas.DataFrame`
-
-        :Keyword arguments:
-            Are passed directly to :meth:`._meta_multi_index`.
 
         """
         print("Reading file {}".format(filename))

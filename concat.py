@@ -1,47 +1,3 @@
-"""
-Technical Aspects
------------------
-
-The concatenation follows the following steps:
-
-#. The csv files are read in and placed in a :class:`~pandas.DataFrame` attached to the :class:`.Reader` as :attr:`~.Reader.data`. This is handled by :mod:`kangeroo.core`, while everything that follows below is contained in :mod:`kangeroo.concat`.
-
-#. The individual time series (columns in the :class:`~pandas.DataFrame` :attr:`~.Reader.data`) are sorted into 'long' and 'short' ones based on a length threshold, in :meth:`~Concatenator.organize_time`. The default threshold is 100 days. Only 'short' time series will later be adjusted by a potential additive offset.
-
-#. A distance measure is computed in time which corresponds to the temporal gap or overlap between any two timeseries. An overlap has negative distance. The :func:`Dijkstra <scipy.sparse.csgraph.dijkstra>` algorithm is then used to find the path through this graph which prefers the largest overlaps.
-
-#. An attempt is being made to detect which of the time series were collected with a wrong time zone setting. To improve the changes of success, it is assumed that there are two contiguous blocks within wich the setting is the same. The detection is based on computing the phase of the daily cycle, in :meth:`.phase`, by means of a trigonometric projection, and fitting of a :class:`~sklearn.tree.DecisionTreeRegressor`, in :meth:`time_zone`.
-
-#. The original time series are resampled using the :meth:`pandas.DataFrame.resample` method, currently at a 30 min interval.
-
-#. If there are overlapping timeseries where the removal of one series results in two others being separated only by a time less than a certain threshold (param ``dispensable_thresh`` in the :class:`.Concatenator` constructor, default 3600 seconds), **and** if this 'dispensable' time series is labeled as on outlier by a test checking its mean and standard deviation against that of the other time series (:meth:`.pre_screen`), that series is removed before any further processing is undertaken.
-
-Usage
------
-
-.. todo::
-
-    * simplify / streamline ``core`` DataFrame routines in light of current algorithm
-        * mostly done
-        * add setup.py
-        * figure out github pages
-    * linear segment as offset instead of constant
-    * experiment with different smoothing parameters for the spline
-    * use of previously removed dataseries (dispensables) fohave had theirr the offset confidence calculation
-    * allow for skipping of non-necessary files after the first round
-        * will require spline and/or overlap routins that don't recompute outliers **and** reset the :attr:`starts` / :attr:`ends`
-    * check other possibilities for confidence of offsets, e.g.
-        * R^2 / generalized OLS ideas
-
-Other remarks
--------------
-    * If the dbscan outlier routine goes haywire, an alternative to choosing the cluster with the most members could be to fit a regression to each cluster and chose the one with the slope closest to one.
-    * Also, the outlier detection cannot detect outliers at the same location in two overlapping time series, since it only works relative.
-
-.. bibliography:: kangeroo.bib
-
-"""
-
 import pandas as pd
 import numpy as np
 from scipy.sparse import csgraph
@@ -64,7 +20,7 @@ class Concatenator(Reader):
         cc = Concatenator(directory='data/4/1', var='level)
 
     """
-    def __init__(self, var, dispensable_thresh=3600, **kwargs):
+    def __init__(self, var, resample='30T', dispensable_thresh=3600, old_output_file=None, **kwargs):
         super().__init__(**kwargs)
         var = self.organize_time(self.data.xs(var, 1, 'var'))
         self.variable = var
@@ -89,7 +45,7 @@ class Concatenator(Reader):
             if d > -dispensable_thresh:
                 dispensable.append(len(order) - 2)
 
-        v = self.time_zone(var.iloc[:, order]).resample('30T').asfreq()
+        v = self.time_zone(var.iloc[:, order]).resample(resample).asfreq()
         self.delta = v.index.freq.delta.to_timedelta64()
         self.var = self.pre_screen(v, dispensable)
         self.out = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'extra', 'interp', 'outliers', 'concat'])
@@ -328,11 +284,15 @@ class Concatenator(Reader):
 
         self.offsets = pd.concat((corr_offs), keys=range(c.shape[0])).T
 
-    def print_offsets(self, columns=['corr_offs', 'odr_slope']):
+    def print_offsets(self, columns=['corr_offs']):
         """Print the offset table in slightly more readable format, with the indexes that can be used for the parameter ``no_offset`` in :meth:`concat` in column ``idx`` and the 'transition zone' index as the left-most level in the hierarchical index, which can be used for the parameter ``use_spline`` in :meth:`concat`. Columns to be printed can be given as kwarg ``columns``.
         """
         offs = self.offsets.T
         offs['idx'] = range(offs.shape[0])
+        b = offs['conn'] != 'short-long'
+        if offs['conn'].iloc[0] != 'long-long':
+            b[0] = True
+        offs = offs[b]
         print(offs[['idx']+columns])
 
     def concat(self, no_offset=[], use_spline=[], smooth_spline=5., pad_spline=20, slope_tol=0.2):
@@ -440,6 +400,8 @@ class Concatenator(Reader):
             return r
 
     def plot(self):
+        """Produce a helpful plot to inspect the concatenated timeseries.
+        """
         fig, ax = plt.subplots()
         idx = self.var.index
         plt.plot(idx, self.out['concat'])

@@ -10,25 +10,9 @@ Welcome to kangeroo's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-Reading Log Files
------------------
-.. automodule:: kangeroo.core
-   :members:
+   main
 
-Concatenation
--------------
-.. automodule:: kangeroo.concat
-   :members:
-
-B-splines
----------
-.. automodule:: kangeroo.bspline
-   :members:
-
-Database
---------
-.. automodule:: kangeroo.database
-   :members:
+   API
 
 Indices and tables
 ==================

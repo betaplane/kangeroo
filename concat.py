@@ -20,8 +20,13 @@ class Concatenator(Reader):
         cc = Concatenator(directory='data/4/1', var='level)
 
     """
-    def __init__(self, var, resample='30T', dispensable_thresh=3600, old_output_file=None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, var, directory=None, resample='30T', dispensable_thresh=3600, old_output_file=None, copy=None):
+        # if old_output_file is not None:
+        #     # NOTE: there seems to be a bug - the first data line of input.csv is inexplicably skipped.
+        #     var = pd.read_csv(os.path.join(directory, 'out', 'input.csv'), parse_dates=True, header=list(range(6)), index_col=0)
+        #     out = pd.read_csv(os.path.join(directory, 'out', 'output.csv'), parse_dates=True, index_col=0)
+
+        super().__init__(directory, copy)
         var = self.organize_time(self.data.xs(var, 1, 'var'))
         self.variable = var
 
@@ -210,7 +215,7 @@ class Concatenator(Reader):
         sp = Bspline(j)
         sp.fit(c, smooth)
         orig_stdev = sp.resid.std() / np.sqrt(len(j))
-
+        from IPython.core.debugger import Tracer; Tracer()()
         labels = self.dbscan(sp.resid, eps=eps, return_labels=plot, masked=True)
         if plot:
             fig, axs = plt.subplots(1, 2, figsize=(12, 5))
@@ -227,9 +232,9 @@ class Concatenator(Reader):
             self.out.ix[j, 'extra'] = sp.spline
             self.out.ix[j, 'resid'] = sp.resid
             if len(o) > 0:
-                outliers = np.where(self.var.ix[o, i:i+2].notnull())[1]
-                if len(outliers) > 0: # could be a gap
-                    self.out.loc[o, 'outliers'] = i + np.unique(outliers).item()
+                row, col = np.where(self.var.ix[o, i:i+2].notnull())
+                if len(row) > 0: # could be a gap
+                    self.out.loc[o[row], 'outliers'] = i + col
                 self.starts[i+1] = self.var.index.get_loc(max(o)) + 1
                 self.ends[i] = self.var.index.get_loc(min(o)) - 1 # ``starts`` and ``ends`` give the actual indexes, not the slice arguments
             return {
@@ -313,13 +318,13 @@ class Concatenator(Reader):
         no_offs = self.offsets.columns[no_offset].get_level_values('file')
         for i, (a, b) in enumerate(zip(self.starts, self.ends)):
             fn = self.file_names[i]
+            offs = 0.
             if self.long_short[i] == 'short':
                 c = self.offsets.xs(fn, 1, 'file', drop_level=False)
                 if fn not in no_offs:
                     offs = self.offsets.loc['corr_offs', c.columns].item()
                 else:
                     self.offsets.loc['corr_offs', c.columns] = 0.
-                    offs = 0.
             self.out.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] + offs
 
         for i, (b, c) in enumerate(zip(self.starts[1:], self.ends[:-1])):

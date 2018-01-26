@@ -1,0 +1,444 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Technical Aspects &mdash; kangeroo 0.1 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+        <link rel="index" title="Index"
+              href="genindex.html"/>
+        <link rel="search" title="Search" href="search.html"/>
+    <link rel="top" title="kangeroo 0.1 documentation" href="index.html"/>
+        <link rel="next" title="API" href="API.html"/>
+        <link rel="prev" title="Welcome to kangeroo’s documentation!" href="index.html"/> 
+
+  
+  <script src="_static/js/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+   
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search">
+          
+
+          
+            <a href="index.html" class="icon icon-home"> kangeroo
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.1
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Technical Aspects</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#joins-with-overlapping-measurements">Joins with overlapping measurements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#joins-with-gaps-or-a-flush-connection">Joins with gaps or a flush connection</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#usage">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#the-plot">The plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#the-computed-offsets-and-related-statistical-quantities">The computed offsets and related statistical quantities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#the-final-concatenation">The final concatenation</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#other-remarks">Other remarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="API.html">API</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">kangeroo</a>
+        
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html">Docs</a> &raquo;</li>
+        
+      <li>Technical Aspects</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/main.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="technical-aspects">
+<h1>Technical Aspects<a class="headerlink" href="#technical-aspects" title="Permalink to this headline">¶</a></h1>
+<p>The concatenation follows the following steps:</p>
+<ol class="arabic simple">
+<li>The csv files are read in and placed in a <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> attached to the <a class="reference internal" href="API.html#kangeroo.core.Reader" title="kangeroo.core.Reader"><code class="xref py py-class docutils literal"><span class="pre">Reader</span></code></a> as <a class="reference internal" href="API.html#kangeroo.core.Reader.data" title="kangeroo.core.Reader.data"><code class="xref py py-attr docutils literal"><span class="pre">data</span></code></a>. This is handled by <a class="reference internal" href="API.html#module-kangeroo.core" title="kangeroo.core"><code class="xref py py-mod docutils literal"><span class="pre">kangeroo.core</span></code></a>, while everything that follows below is contained in <a class="reference internal" href="API.html#module-kangeroo.concat" title="kangeroo.concat"><code class="xref py py-mod docutils literal"><span class="pre">kangeroo.concat</span></code></a>.</li>
+<li>The individual time series (columns in the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> <a class="reference internal" href="API.html#kangeroo.core.Reader.data" title="kangeroo.core.Reader.data"><code class="xref py py-attr docutils literal"><span class="pre">data</span></code></a>) are sorted into ‘long’ and ‘short’ ones based on a length threshold, in <code class="xref py py-meth docutils literal"><span class="pre">organize_time()</span></code>. The default threshold is 100 days. Only ‘short’ time series will later be adjusted by a potential additive offset.</li>
+<li>A distance measure is computed in time which corresponds to the temporal gap or overlap between any two timeseries. An overlap has negative distance. The <a class="reference external" href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csgraph.dijkstra.html#scipy.sparse.csgraph.dijkstra" title="(in SciPy v1.0.0)"><code class="xref py py-func docutils literal"><span class="pre">Dijkstra</span></code></a> algorithm is then used to find the path through this graph which prefers the largest overlaps.</li>
+<li>An attempt is being made to detect which of the time series were collected with a wrong time zone setting. To improve the changes of success, it is assumed that there are two contiguous blocks within wich the setting is the same. The detection is based on computing the phase of the daily cycle, in <code class="xref py py-meth docutils literal"><span class="pre">phase()</span></code>, by means of a trigonometric projection, and fitting of a <a class="reference external" href="http://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeRegressor.html#sklearn.tree.DecisionTreeRegressor" title="(in scikit-learn v0.19.1)"><code class="xref py py-class docutils literal"><span class="pre">DecisionTreeRegressor</span></code></a>, in <code class="xref py py-meth docutils literal"><span class="pre">time_zone()</span></code>.</li>
+<li>The original time series are resampled using the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.resample.html#pandas.DataFrame.resample" title="(in pandas v0.22.0)"><code class="xref py py-meth docutils literal"><span class="pre">pandas.DataFrame.resample()</span></code></a> method, currently at a 30 min interval.</li>
+<li>If there are overlapping timeseries where the removal of one series results in two others being separated only by a time less than a certain threshold (param <code class="docutils literal"><span class="pre">dispensable_thresh</span></code> in the <a class="reference internal" href="API.html#kangeroo.concat.Concatenator" title="kangeroo.concat.Concatenator"><code class="xref py py-class docutils literal"><span class="pre">Concatenator</span></code></a> constructor, default 3600 seconds), <strong>and</strong> if this ‘dispensable’ time series is labeled as on outlier by a test checking its mean and standard deviation, that series is removed in <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.pre_screen" title="kangeroo.concat.Concatenator.pre_screen"><code class="xref py py-meth docutils literal"><span class="pre">pre_screen()</span></code></a> before any further processing is undertaken.</li>
+<li>A pass over all remaining time series is performed and relative additive offsets are computed, together with some auxiliary statistics. The focus is on the ‘joins’ between the time series, which either consists of a period of overlapping measurements or a flush connection or gap. Different procedures apply to these two respective types of connection, as detailed in the following two sections.</li>
+<li>Consecutive joins of ‘short’ time series surrounded by ‘long’ ones are offset together and relative to the ‘long’ ones which are treated as correct, save for potential outliers at first or last few data points. This implies that the cumulative additive offsets of a such a sequences of ‘short’ series should sum to 0; in reality, there is usually a residual error. This error is distributed among the intermediate joins according to a measure of confidence in the offset calculations: If an offset is deemed to be calculated with higher confidence than another one, it receives correspondingly less of the total correction amount. The measure of confidence currently adopted is the standard deviation of the offset estimate as given by the standard rule of thumb <span class="math">\(\sigma / \sqrt{n}\)</span>, where <span class="math">\(\sigma\)</span> is the standard deviation of either the difference between cuncurrent data points in the case of overlapping time series, or of the residual with respect to the spline fit in the case of gaps / flush connections (see below), and <span class="math">\(n\)</span> is the number of data points involved.</li>
+<li>Missing values are imputed using the same <a class="reference internal" href="API.html#kangeroo.bspline.Bspline" title="kangeroo.bspline.Bspline"><code class="xref py py-class docutils literal"><span class="pre">Bspline</span></code></a> approach as in the treatment of non-overlapping joins, without the additive offset paramter. The smoothing spline method can also be used to interpolate accross complete <code class="docutils literal"><span class="pre">long</span></code>-<code class="docutils literal"><span class="pre">short</span></code>-<code class="docutils literal"><span class="pre">long</span></code> transitions if those are ill behaved. This is recommended e.g. if the regression slope (see below) is far from one.</li>
+</ol>
+<div class="section" id="joins-with-overlapping-measurements">
+<h2>Joins with overlapping measurements<a class="headerlink" href="#joins-with-overlapping-measurements" title="Permalink to this headline">¶</a></h2>
+<p>A clustering analysis is performed on the difference between the temporally concurrent data points, in <code class="xref py py-meth docutils literal"><span class="pre">dbscan()</span></code>, which utilizes the <a class="reference external" href="http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html#sklearn.cluster.DBSCAN" title="(in scikit-learn v0.19.1)"><code class="xref py py-class docutils literal"><span class="pre">DBSCAN</span></code></a> algorithm, in order to identify outliers. The largest temporally contiguous cluster is assumed to correspond to valid data, and an orthogonal distance regression is performed in <code class="xref py py-meth docutils literal"><span class="pre">odr()</span></code>, using the <a class="reference external" href="https://docs.scipy.org/doc/scipy/reference/odr.html#module-scipy.odr" title="(in SciPy v1.0.0)"><code class="xref py py-mod docutils literal"><span class="pre">odr</span></code></a> module. The rationale for using an ODR regression is that both timeseries are equally subject to errors and none of them can be considered ‘independent’ or ‘dependent’. The slope of the regression is used as a diagnostic of problems, since it should be close to 1. The additive offset is computed as the mean of the differences between concurrent valid data points.</p>
+</div>
+<div class="section" id="joins-with-gaps-or-a-flush-connection">
+<h2>Joins with gaps or a flush connection<a class="headerlink" href="#joins-with-gaps-or-a-flush-connection" title="Permalink to this headline">¶</a></h2>
+<p>A smoothing spline is fit over a period comprising a certain number of time steps on either side of the center of the gap. This number can be given as parameter <code class="docutils literal"><span class="pre">pad</span></code> to the method <code class="xref py py-meth docutils literal"><span class="pre">spline()</span></code> (default 20 on either side, giving an overall spline length of 41 points). The smoothing parameter of the spline is given as as paramter <code class="docutils literal"><span class="pre">smooth</span></code> (default is 10, but its effect depends on the circumstances, in particular the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.resample.html#pandas.DataFrame.resample" title="(in pandas v0.22.0)"><code class="xref py py-meth docutils literal"><span class="pre">resample()</span></code></a> interval). Similar to the overlapping case, the <code class="xref py py-meth docutils literal"><span class="pre">dbscan()</span></code> method is used to identify outliers, except that it is applied here to the residuals of the data with respect to the spline fit. Since the outliers are expected to be found in-between the valid points in this case, it is simply the largest cluster from the <a class="reference external" href="http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html#sklearn.cluster.DBSCAN" title="(in scikit-learn v0.19.1)"><code class="xref py py-class docutils literal"><span class="pre">DBSCAN</span></code></a> which is assumed to correspond to valid data points. After identification of the outliers, the spline algorithm in <a class="reference internal" href="API.html#module-kangeroo.bspline" title="kangeroo.bspline"><code class="xref py py-mod docutils literal"><span class="pre">kangeroo.bspline</span></code></a> is invoked a second time with only the valid data, but with the addition of a further parameter corresponding to an additive offset between to the two time series - this is how offsets are calculated for the case of non-overlapping joins. In tests, this method has worked well on deterministic toy problems, but with realistic data it is to be expected that the partitioning of degrees of freedom between the B-spline basis functions and the additive offset will not always result in a reliable estimate.</p>
+</div>
+</div>
+<div class="section" id="usage">
+<h1>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h1>
+<p>The <code class="xref py py-class docutils literal"><span class="pre">kangeroo.Concatenator</span></code> is invoked by giving a directory containing all logger csv files as argument, together with the variable for which the concatenation should be performed (e.g., <code class="docutils literal"><span class="pre">temp</span></code> or <code class="docutils literal"><span class="pre">level</span></code>):</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">In</span> <span class="p">[</span><span class="mi">1</span><span class="p">]:</span> <span class="kn">from</span> <span class="nn">kangeroo.concat</span> <span class="k">import</span> <span class="n">Concatenator</span>
+
+<span class="n">In</span> <span class="p">[</span><span class="mi">2</span><span class="p">]:</span> <span class="n">cc</span> <span class="o">=</span> <span class="n">Concatenator</span><span class="p">(</span><span class="n">directory</span><span class="o">=</span><span class="s1">&#39;data/4/1&#39;</span><span class="p">,</span> <span class="n">var</span><span class="o">=</span><span class="s1">&#39;level&#39;</span><span class="p">)</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">Bridge2_K65</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">bridge2_2013_06_16</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">LL</span><span class="c1">#2_082308.csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">AK4_LL</span><span class="o">-</span><span class="mi">8</span><span class="n">_June10_2012</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">Bridge2_2010</span><span class="o">-</span><span class="mi">06</span><span class="o">-</span><span class="mi">09</span><span class="n">_level_localtime</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="mi">2015</span><span class="n">_07_23_bridge2downstream_levellogger</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">LL</span><span class="c1">#8_bridge2downstream_2014_07_15.csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">AK4_LL</span><span class="o">-</span><span class="mi">100</span><span class="n">_June13_2012</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">LL</span><span class="c1">#8_082108.csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">Bridge2_temp_K69</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">bridge2_ll8_levelloggerData_090820</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">LL</span><span class="c1">#2_060908.csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">Bridge2_old_LL8_13Aug2013</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">Levelogger_LL1_temp_Bridge2_2011</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="mi">1017376</span><span class="n">_Greenland_LL</span><span class="c1">#8_2009_06_01_bridge2.csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">AK4_LL</span><span class="o">-</span><span class="mi">203</span><span class="n">_temp_August20_2012</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="mi">1017422</span><span class="n">_Greenland_LL</span><span class="c1">#1_2009_06_04_bridge2.csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">levellogger_bridge_2_2011_07_18</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">AK4_ll</span><span class="o">-</span><span class="mi">8</span><span class="n">_August14_2012</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="mi">2013</span><span class="n">_bridge2_templogger</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">AK4_LL</span><span class="o">-</span><span class="mi">8</span><span class="n">_August3_2012</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">Bridge2_2010</span><span class="o">-</span><span class="mi">06</span><span class="o">-</span><span class="mi">07</span><span class="n">_level</span><span class="o">.</span><span class="n">csv</span>
+<span class="n">Reading</span> <span class="n">file</span> <span class="n">data</span><span class="o">/</span><span class="mi">4</span><span class="o">/</span><span class="mi">1</span><span class="o">/</span><span class="n">AK4_08_22_2014_levelBridge2downstream</span><span class="o">.</span><span class="n">csv</span>
+
+<span class="n">The</span> <span class="n">following</span> <span class="n">files</span><span class="s1">&#39; timestamps have been changed by 5 hours:</span>
+
+<span class="n">LL</span><span class="c1">#2_060908</span>
+<span class="n">LL</span><span class="c1">#8_082108</span>
+<span class="n">LL</span><span class="c1">#2_082308</span>
+<span class="mi">1017376</span><span class="n">_Greenland_LL</span><span class="c1">#8_2009_06_01_bridge2</span>
+<span class="mi">1017422</span><span class="n">_Greenland_LL</span><span class="c1">#1_2009_06_04_bridge2</span>
+<span class="n">bridge2_ll8_levelloggerData_090820</span>
+<span class="n">Bridge2_2010</span><span class="o">-</span><span class="mi">06</span><span class="o">-</span><span class="mi">07</span><span class="n">_level</span>
+
+
+<span class="n">The</span> <span class="n">following</span> <span class="n">files</span> <span class="n">have</span> <span class="n">been</span> <span class="n">removed</span> <span class="kn">from</span> <span class="nn">the</span> <span class="n">concatenation</span> <span class="k">as</span> <span class="n">unnecessary</span> <span class="n">outliers</span><span class="p">:</span>
+
+<span class="n">AK4_LL</span><span class="o">-</span><span class="mi">203</span><span class="n">_temp_August20_2012</span>
+<span class="n">LL</span><span class="c1">#2_060908</span>
+<span class="n">LL</span><span class="c1">#2_082308</span>
+
+
+<span class="n">The</span> <span class="n">following</span> <span class="n">transitions</span> <span class="n">have</span> <span class="n">slope</span> <span class="n">abnormalities</span><span class="p">:</span>
+
+<span class="mi">3</span> <span class="p">[</span><span class="s1">&#39;Levelogger_LL1_temp_Bridge2_2011&#39;</span><span class="p">,</span> <span class="s1">&#39;AK4_LL-8_June10_2012&#39;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>This performs all the steps described in <a class="reference internal" href="#technical-aspects">Technical Aspects</a> automatically and should produce a reasonable concatenated time series. The time series read in from the logger files populate a <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> with time stamps in the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DatetimeIndex.html#pandas.DatetimeIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DatetimeIndex</span></code></a> and a columns for each input file in <code class="docutils literal"><span class="pre">directory</span></code>. The variable (<code class="docutils literal"><span class="pre">var</span></code>) on which the <code class="xref py py-class docutils literal"><span class="pre">Concatenator</span></code> operates resides in the attribute <code class="xref py py-attr docutils literal"><span class="pre">var</span></code>, which will also be subsampled to the desired frequency, whereas the original data (including all variables found in the input files) populates a <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> accessible as <a class="reference internal" href="API.html#kangeroo.core.Reader.data" title="kangeroo.core.Reader.data"><code class="xref py py-attr docutils literal"><span class="pre">data</span></code></a>.</p>
+<p>The routine prints the name of all the ingested files, a message indicating which files have had their timestamps changed, which files have been removed by the pre-screening, and a message about joins with regression slopes significantly different from 1 (in both cases, only if applicable).</p>
+<p>The result can be visually inspected by calling <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.plot" title="kangeroo.concat.Concatenator.plot"><code class="xref py py-meth docutils literal"><span class="pre">plot()</span></code></a>:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cc</span><span class="o">.</span><span class="n">plot</span><span class="p">()</span>
+</pre></div>
+</div>
+<div class="figure" id="id1">
+<img alt="_images/Figure_1.png" src="_images/Figure_1.png" />
+<p class="caption"><span class="caption-text">Overview plot generated by <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.plot" title="kangeroo.concat.Concatenator.plot"><code class="xref py py-meth docutils literal"><span class="pre">plot()</span></code></a>. The colored vertical strips correspond to the intervals during which data is taken from <code class="docutils literal"><span class="pre">short</span></code> time series. Each contiguous block of one or more of them corresponds to the left-most index printed by a call to <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.print_offsets" title="kangeroo.concat.Concatenator.print_offsets"><code class="xref py py-meth docutils literal"><span class="pre">print_offsets()</span></code></a> and hence to the expected value for the argument <code class="docutils literal"><span class="pre">use_spline</span></code> in <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a>.</span></p>
+</div>
+<div class="section" id="the-plot">
+<h2>The plot<a class="headerlink" href="#the-plot" title="Permalink to this headline">¶</a></h2>
+<p>The plot contains the following elements:</p>
+<ol class="arabic simple">
+<li>The automatically generated concatented time series in blue (presumably mostly obscured by other colors, see below).</li>
+<li>Permanent (<code class="docutils literal"><span class="pre">long</span></code>), unaltered time series in black.</li>
+<li>Temporary (<code class="docutils literal"><span class="pre">short</span></code>), potentially offset time series in different colors.</li>
+<li>The periods over which data is taken from <code class="docutils literal"><span class="pre">short</span></code> series as shaded vertical intervals in the same color as the time series.</li>
+<li>The names of the files from which the <code class="docutils literal"><span class="pre">short</span></code> time series have been read in, arranged in order and in the same color as the corresponding series and their intervals.</li>
+<li>The detected outliers as empty, magenta circles.</li>
+<li>The smoothing splines fitted to compute the offsets with cross markers and in red.</li>
+<li>The smoothing splines used for the interpolation of missing values or to smooth over irregular transitions with cross markers and in green.</li>
+</ol>
+<p>The applied offsets can be recognized if the concatenated timeseries (in blue) differs from the original (in color). It is recommended that the transition periods be inspected closely, and that offsets which appear ill-fitting to the human eye be noted; they can be set back to 0 in the final concatenation.</p>
+<div class="figure" id="id2">
+<img alt="_images/Figure_2.png" src="_images/Figure_2.png" />
+<p class="caption"><span class="caption-text">Example of smoothing splines fit at the join between two non-overlapping series. Magenta open circles mark the detected outliers; the red line with cross markers shows the original spline fit with an offset (which subsequently has been manually set to zero). The green spline was fit during the final concatenation as a means of interpolating the few missing values.</span></p>
+</div>
+</div>
+<div class="section" id="the-computed-offsets-and-related-statistical-quantities">
+<h2>The computed offsets and related statistical quantities<a class="headerlink" href="#the-computed-offsets-and-related-statistical-quantities" title="Permalink to this headline">¶</a></h2>
+<p>The calculated values can be inspected directly, either by calling the method <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.print_offsets" title="kangeroo.concat.Concatenator.print_offsets"><code class="xref py py-meth docutils literal"><span class="pre">print_offsets()</span></code></a>, or by inspecting the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> accessible via <code class="xref py py-attr docutils literal"><span class="pre">offsets</span></code>:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">In</span> <span class="p">[</span><span class="mi">3</span><span class="p">]:</span> <span class="n">cc</span><span class="o">.</span><span class="n">print_offsets</span><span class="p">()</span>
+                                             <span class="n">idx</span>  <span class="n">corr_offs</span>
+  <span class="n">file</span>
+<span class="mi">0</span> <span class="n">LL</span><span class="c1">#8_082108                                  0    6.36061</span>
+<span class="mi">1</span> <span class="mi">1017422</span><span class="n">_Greenland_LL</span><span class="c1">#1_2009_06_04_bridge2    1   -7.29722</span>
+  <span class="n">bridge2_ll8_levelloggerData_090820</span>           <span class="mi">2</span>    <span class="mf">3.13766</span>
+<span class="mi">2</span> <span class="n">Bridge2_2010</span><span class="o">-</span><span class="mi">06</span><span class="o">-</span><span class="mi">09</span><span class="n">_level_localtime</span>           <span class="mi">4</span>   <span class="mf">0.689655</span>
+  <span class="n">Bridge2_K65</span>                                  <span class="mi">5</span>   <span class="o">-</span><span class="mf">4.91682</span>
+  <span class="n">Bridge2_temp_K69</span>                             <span class="mi">6</span>   <span class="o">-</span><span class="mf">5.24972</span>
+<span class="mi">3</span> <span class="n">Levelogger_LL1_temp_Bridge2_2011</span>             <span class="mi">8</span>    <span class="mf">6.70867</span>
+<span class="mi">4</span> <span class="n">AK4_LL</span><span class="o">-</span><span class="mi">100</span><span class="n">_June13_2012</span>                      <span class="mi">10</span>    <span class="mf">5.96628</span>
+  <span class="n">AK4_LL</span><span class="o">-</span><span class="mi">8</span><span class="n">_August3_2012</span>                       <span class="mi">11</span>   <span class="mf">0.950271</span>
+  <span class="n">AK4_ll</span><span class="o">-</span><span class="mi">8</span><span class="n">_August14_2012</span>                      <span class="mi">12</span> <span class="o">-</span><span class="mf">0.0111274</span>
+<span class="mi">5</span> <span class="mi">2013</span><span class="n">_bridge2_templogger</span>                     <span class="mi">14</span>   <span class="o">-</span><span class="mf">10.6265</span>
+  <span class="n">Bridge2_old_LL8_13Aug2013</span>                   <span class="mi">15</span>   <span class="o">-</span><span class="mf">1.09639</span>
+<span class="mi">6</span> <span class="n">AK4_08_22_2014_levelBridge2downstream</span>       <span class="mi">17</span>    <span class="mf">13.9362</span>
+</pre></div>
+</div>
+<p>The offsets displayed by <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.print_offsets" title="kangeroo.concat.Concatenator.print_offsets"><code class="xref py py-meth docutils literal"><span class="pre">print_offsets()</span></code></a> are the ‘corrected’ offsets, i.e. after the cumulative error over a series of <code class="docutils literal"><span class="pre">short</span></code> joins has been redistributed according to the confidence in the offset calculation (see <a class="reference internal" href="#technical-aspects">Technical Aspects</a>). The original offset can be found in the column <code class="docutils literal"><span class="pre">offset</span></code> of the <code class="xref py py-attr docutils literal"><span class="pre">offsets</span></code>, while the corrected offset is in the column <code class="docutils literal"><span class="pre">corr_offs</span></code>. The currently used measure of confidence is the estimate of the standard deviation of the offset, in the column <code class="docutils literal"><span class="pre">stdev</span></code>.</p>
+<p>Bear in mind, though, that the data contained in <code class="xref py py-attr docutils literal"><span class="pre">offsets</span></code> corresponds to the ‘joins’ between any two files and is thus harder to interpred; more precisely, each value corresponds to the offset and other statistics calculated between the named <code class="docutils literal"><span class="pre">file</span></code> of each column and its <em>predecessor</em>.</p>
+<p>It is to be noted that <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.print_offsets" title="kangeroo.concat.Concatenator.print_offsets"><code class="xref py py-meth docutils literal"><span class="pre">print_offsets()</span></code></a> gives two important pieces of information for computing the final concatenation:</p>
+<ol class="arabic simple">
+<li>The indexes to be used for the <code class="docutils literal"><span class="pre">no_offset</span></code> argument to <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a> in column <code class="docutils literal"><span class="pre">idx</span></code>. Do not be surprised by the fact that the indexes are not contiguous - this is because <code class="docutils literal"><span class="pre">long</span></code> series have been removed from the display (but are present in the <code class="xref py py-attr docutils literal"><span class="pre">DataFrame</span></code>).</li>
+<li>The indexes of the ‘blocks’ of <code class="docutils literal"><span class="pre">short</span></code> time series to be used for the <code class="docutils literal"><span class="pre">use_spline</span></code> argument as the left-most index. This index counts the blocks of colored vertical bands in the <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.plot" title="kangeroo.concat.Concatenator.plot"><code class="xref py py-meth docutils literal"><span class="pre">plot()</span></code></a>.</li>
+</ol>
+</div>
+<div class="section" id="the-final-concatenation">
+<h2>The final concatenation<a class="headerlink" href="#the-final-concatenation" title="Permalink to this headline">¶</a></h2>
+<p>The <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a> method is invoked automatically by the <code class="xref py py-class docutils literal"><span class="pre">Concatenator</span></code> constructor and performs the first concatenation which can then be inspected by calling <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.plot" title="kangeroo.concat.Concatenator.plot"><code class="xref py py-meth docutils literal"><span class="pre">plot()</span></code></a>. The <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a> can also be invoked directly again and can take the optional arguments <code class="docutils literal"><span class="pre">no_offset</span></code> and <code class="docutils literal"><span class="pre">use_spline</span></code> (apart from some paramters governing the behavior of the employed algorithms). Both these arguments are given as <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">lists</span></code></a>; <code class="docutils literal"><span class="pre">no_offset</span></code> counts all <code class="docutils literal"><span class="pre">short</span></code> time series and is given in the <code class="docutils literal"><span class="pre">idx</span></code> column of table printed when calling <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.print_offsets" title="kangeroo.concat.Concatenator.print_offsets"><code class="xref py py-meth docutils literal"><span class="pre">print_offsets()</span></code></a>, while <code class="docutils literal"><span class="pre">use_spline</span></code> counts the contiguous blocks of <code class="docutils literal"><span class="pre">short</span></code> series separated by <code class="docutils literal"><span class="pre">long</span></code>, permanent ones and is given by the top-level (leftmost) index of the printed table. Invoking, for example:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cc</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">no_offset</span><span class="o">=</span><span class="p">[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">17</span><span class="p">],</span> <span class="n">use_spline</span><span class="o">=</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>resets the computed offsets for files <code class="docutils literal"><span class="pre">5</span></code> and <code class="docutils literal"><span class="pre">17</span></code> (‘Bridge2_K65’ and ‘AK4_08_22_2014_levelBridge2downstream’) to zero and performs a spline interpolation across the <code class="docutils literal"><span class="pre">short</span></code> series block <code class="docutils literal"><span class="pre">3</span></code> (containing only ‘Levelogger_LL1_temp_Bridge2_2011’).</p>
+<div class="figure" id="id3">
+<img alt="_images/Figure_3.png" src="_images/Figure_3.png" />
+<p class="caption"><span class="caption-text">Example of the smoothing spline interpolation resulting from using the argument <code class="docutils literal"><span class="pre">use_spline</span></code> in method <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a>.</span></p>
+</div>
+<div class="admonition-todo admonition" id="index-0">
+<p class="first admonition-title">Todo</p>
+<ul class="last simple">
+<li>ingest old ‘offset’ file to continue previously performed concatenation with new files</li>
+<li>threshold value for offsets (set to zero if too small)?</li>
+<li><dl class="first docutils">
+<dt>simplify / streamline <code class="docutils literal"><span class="pre">core</span></code> DataFrame routines in light of current algorithm</dt>
+<dd><ul class="first last">
+<li>mostly done</li>
+<li>add setup.py</li>
+<li>figure out github pages</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li>linear segment as offset instead of constant</li>
+<li>experiment with different smoothing parameters for the spline</li>
+<li>use of previously removed dataseries (dispensables) fohave had theirr the offset confidence calculation</li>
+<li><dl class="first docutils">
+<dt>allow for skipping of non-necessary files after the first round</dt>
+<dd><ul class="first last">
+<li>will require spline and/or overlap routins that don’t recompute outliers <strong>and</strong> reset the <code class="xref py py-attr docutils literal"><span class="pre">starts</span></code> / <code class="xref py py-attr docutils literal"><span class="pre">ends</span></code></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>check other possibilities for confidence of offsets, e.g.</dt>
+<dd><ul class="first last">
+<li><span class="math">\(R^2\)</span> / generalized OLS ideas</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="section" id="other-remarks">
+<h1>Other remarks<a class="headerlink" href="#other-remarks" title="Permalink to this headline">¶</a></h1>
+<blockquote>
+<div><ul class="simple">
+<li>If the dbscan outlier routine goes haywire, an alternative to choosing the cluster with the most members could be to fit a regression to each cluster and chose the one with the slope closest to one.</li>
+<li>Also, the outlier detection cannot detect outliers at the same location in two overlapping time series, since it only works relative.</li>
+</ul>
+</div></blockquote>
+<p id="bibtex-bibliography-main-0"><table class="docutils citation" frame="void" id="chawla-k-means-2013" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label">[CG13]</td><td>Sanjay Chawla and Aristides Gionis. K-means–: A unified approach to clustering and outlier detection. In <em>Proceedings of the 2013 SIAM International Conference on Data Mining</em>, 189–197. SIAM, 2013.</td></tr>
+</tbody>
+</table>
+</p>
+</div>
+
+
+           </div>
+           <div class="articleComments">
+            
+           </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="API.html" class="btn btn-neutral float-right" title="API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="index.html" class="btn btn-neutral" title="Welcome to kangeroo’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2017, Arno C. Hammann.
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'./',
+            VERSION:'0.1',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true,
+            SOURCELINK_SUFFIX: '.txt'
+        };
+    </script>
+      <script type="text/javascript" src="_static/jquery.js"></script>
+      <script type="text/javascript" src="_static/underscore.js"></script>
+      <script type="text/javascript" src="_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

@@ -1,0 +1,548 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>API &mdash; kangeroo 0.1 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+        <link rel="index" title="Index"
+              href="genindex.html"/>
+        <link rel="search" title="Search" href="search.html"/>
+    <link rel="top" title="kangeroo 0.1 documentation" href="index.html"/>
+        <link rel="prev" title="Technical Aspects" href="main.html"/> 
+
+  
+  <script src="_static/js/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+   
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search">
+          
+
+          
+            <a href="index.html" class="icon icon-home"> kangeroo
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.1
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="main.html">Technical Aspects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="main.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="main.html#other-remarks">Other remarks</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kangeroo.core">Reading Log Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-kangeroo.concat">Concatenation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-kangeroo.bspline">B-splines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-kangeroo.database">Database</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#remember">Remember</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">kangeroo</a>
+        
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html">Docs</a> &raquo;</li>
+        
+      <li>API</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/API.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="api">
+<h1>API<a class="headerlink" href="#api" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-kangeroo.core">
+<span id="reading-log-files"></span><h2>Reading Log Files<a class="headerlink" href="#module-kangeroo.core" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="kangeroo.core.Reader">
+<em class="property">class </em><code class="descclassname">kangeroo.core.</code><code class="descname">Reader</code><span class="sig-paren">(</span><em>directory=None</em>, <em>copy=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/core.html#Reader"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.core.Reader" title="Permalink to this definition">¶</a></dt>
+<dd><p>Base class which collects methods to read data logger (.csv) files.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name" colspan="2">Keyword arguments:</th></tr>
+<tr class="field-odd field"><td>&#160;</td><td class="field-body"><ul class="first last simple">
+<li><strong>directory</strong> - The directory from which the data logger files are to be read.</li>
+<li><strong>copy</strong> - If <code class="docutils literal"><span class="pre">copy=Reader</span></code> where <code class="docutils literal"><span class="pre">Reader</span></code> is an instance of the <a class="reference internal" href="#kangeroo.core.Reader" title="kangeroo.core.Reader"><code class="xref py py-class docutils literal"><span class="pre">Reader</span></code></a> class, the data attributes are simply copied over so that the don’t need to be read again from the original files. This is for development and will be removed later.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<dl class="attribute">
+<dt id="kangeroo.core.Reader.data">
+<code class="descname">data</code><a class="headerlink" href="#kangeroo.core.Reader.data" title="Permalink to this definition">¶</a></dt>
+<dd><p>The <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> containing the read-in data with a <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DatetimeIndex.html#pandas.DatetimeIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DatetimeIndex</span></code></a> and the columns corresponding to the files in <code class="docutils literal"><span class="pre">directory</span></code></p>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="kangeroo.core.Reader.check_directory">
+<em class="property">static </em><code class="descname">check_directory</code><span class="sig-paren">(</span><em>filename</em>, <em>variable</em>, <em>base_path='.'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/core.html#Reader.check_directory"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.core.Reader.check_directory" title="Permalink to this definition">¶</a></dt>
+<dd><p>Check the contents of a logger file directory against the filenames in the <cite>filename</cite> level of the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.MultiIndex.html#pandas.MultiIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">MultiIndex</span></code></a> columns of a processed dataframe.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>filename</strong> – name of the <code class="xref py py-class docutils literal"><span class="pre">HDFStore</span></code> file containing the processed DataFrames</li>
+<li><strong>variable</strong> – name of the variable within that file (full ‘path’)</li>
+<li><strong>base_path</strong> – base path where the corresponding directory tree is rooted</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">a dictionary of lists which contain the filenames present exclusively in one of the two repositories - the <code class="xref py py-class docutils literal"><span class="pre">HDFStore</span></code> (‘HFD5’) and the directory (‘directory’)</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">dict</span></code></a> of lists</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="kangeroo.core.Reader.logger_columns">
+<code class="descname">logger_columns</code><em class="property"> = [['Date', 'Time', 'LEVEL', 'TEMPERATURE'], ['Date', 'Time', 'Level', 'Temperature'], {1: 'Date', 2: 'Time', 4: 'level', 5: 'temp'}]</em><a class="headerlink" href="#kangeroo.core.Reader.logger_columns" title="Permalink to this definition">¶</a></dt>
+<dd><p>Column names in the data logger files. Each sub-list is tried until a match is found; if the names are different, an error will result.</p>
+</dd></dl>
+
+<dl class="classmethod">
+<dt id="kangeroo.core.Reader.read">
+<em class="property">classmethod </em><code class="descname">read</code><span class="sig-paren">(</span><em>filename</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/core.html#Reader.read"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.core.Reader.read" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Read a data logger .csv file and return a dictionary of DataFrames for individual columns of the file. Each DataFrame contains one column with the data and one column with a flag value (for subsequent use) which is set to 1 for each record. The <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.MultiIndex.html#pandas.MultiIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">MultiIndex</span></code></a> has the levels:</dt>
+<dd><ul class="first last simple">
+<li><em>file</em> - the original filename (without extension) from which the data was read</li>
+<li><em>var</em> - the variable name (from the logger file)</li>
+</ul>
+</dd>
+</dl>
+<p>The columns which are read are given in the <a class="reference internal" href="#kangeroo.core.Reader.logger_columns" title="kangeroo.core.Reader.logger_columns"><code class="xref py py-attr docutils literal"><span class="pre">logger_columns</span></code></a> class variable.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>filename</strong> – csv file to be read</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">DataFrame with metadata in the columns <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.MultiIndex.html#pandas.MultiIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">MultiIndex</span></code></a> and a <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DatetimeIndex.html#pandas.DatetimeIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DatetimeIndex</span></code></a> as index. The timestamps are constructed from the columns ‘Date’ and ‘Time’ in the datalogger files.</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-kangeroo.concat">
+<span id="concatenation"></span><h2>Concatenation<a class="headerlink" href="#module-kangeroo.concat" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="kangeroo.concat.Concatenator">
+<em class="property">class </em><code class="descclassname">kangeroo.concat.</code><code class="descname">Concatenator</code><span class="sig-paren">(</span><em>var</em>, <em>resample='30T'</em>, <em>dispensable_thresh=3600</em>, <em>old_output_file=None</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/concat.html#Concatenator"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.concat.Concatenator" title="Permalink to this definition">¶</a></dt>
+<dd><p>Usage example:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cc</span> <span class="o">=</span> <span class="n">Concatenator</span><span class="p">(</span><span class="n">directory</span><span class="o">=</span><span class="s1">&#39;data/4/1&#39;</span><span class="p">,</span> <span class="n">var</span><span class="o">=</span><span class="s1">&#39;level)</span>
+</pre></div>
+</div>
+<dl class="method">
+<dt id="kangeroo.concat.Concatenator.concat">
+<code class="descname">concat</code><span class="sig-paren">(</span><em>no_offset=[]</em>, <em>use_spline=[]</em>, <em>smooth_spline=5.0</em>, <em>pad_spline=20</em>, <em>slope_tol=0.2</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/concat.html#Concatenator.concat"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.concat.Concatenator.concat" title="Permalink to this definition">¶</a></dt>
+<dd><p>Perform the actual concatenation.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>no_offset</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">list</span></code></a>) – list of indexes of columns in the ordered <code class="xref py py-attr docutils literal"><span class="pre">var</span></code> DataFrame whose computed offset should be skipped (i.e. set to zero)</li>
+<li><strong>use_spline</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">list</span></code></a>) – list of top-level indexes in the <code class="xref py py-attr docutils literal"><span class="pre">offsets</span></code> DataFrame (corresponding to the colored sections of the plot produced by <a class="reference internal" href="#kangeroo.concat.Concatenator.plot" title="kangeroo.concat.Concatenator.plot"><code class="xref py py-meth docutils literal"><span class="pre">plot()</span></code></a>) to which spline-based interpolation should be applied</li>
+<li><strong>smooth_spline</strong> (<code class="xref py py-obj docutils literal"><span class="pre">float`</span></code>) – smoothing parameter for spline-based interpolation of the missing values</li>
+<li><strong>pad_spline</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">int</span></code></a>) – Padding, in integer indexes, on either side of the transition zone across which a smoothing spline should be fit (roughly equivalent to parameter <code class="docutils literal"><span class="pre">pad</span></code> in <code class="xref py py-meth docutils literal"><span class="pre">spline()</span></code>)</li>
+<li><strong>slope_tol</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">float</span></code></a>) – deviation from a slope of 1 in the regression of two series in an overlap region which is tolerated without printing a message</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="kangeroo.concat.Concatenator.contiguous">
+<em class="property">static </em><code class="descname">contiguous</code><span class="sig-paren">(</span><em>s</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/concat.html#Concatenator.contiguous"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.concat.Concatenator.contiguous" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the indexes between which the input array is <code class="docutils literal"><span class="pre">True</span></code> or <code class="docutils literal"><span class="pre">1</span></code> as closed intervals in the rows of the returnd <a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.14)"><code class="xref py py-class docutils literal"><span class="pre">ndarray</span></code></a> (i.e. for integer-based slicing, the second index has to be incremented by one, and the length of the interval is equal to the difference along dimension one <strong>+1</strong>).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="kangeroo.concat.Concatenator.organize_time">
+<code class="descname">organize_time</code><span class="sig-paren">(</span><em>data</em>, <em>length=100</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/concat.html#Concatenator.organize_time"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.concat.Concatenator.organize_time" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reorganize a <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> according to the length of the Series.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>length</strong> – Threshold which divides long from short time series (in days).</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">DataFrame with <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.MultiIndex.html#pandas.MultiIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">MultiIndex</span></code></a> in the columns with topmost level <code class="docutils literal"><span class="pre">length</span></code> containing the labels <code class="docutils literal"><span class="pre">long</span></code> and <code class="docutils literal"><span class="pre">short</span></code></td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="kangeroo.concat.Concatenator.plot">
+<code class="descname">plot</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/concat.html#Concatenator.plot"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.concat.Concatenator.plot" title="Permalink to this definition">¶</a></dt>
+<dd><p>Produce a helpful plot to inspect the concatenated timeseries.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="kangeroo.concat.Concatenator.pre_screen">
+<code class="descname">pre_screen</code><span class="sig-paren">(</span><em>var</em>, <em>disp</em>, <em>thresh=10</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/concat.html#Concatenator.pre_screen"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.concat.Concatenator.pre_screen" title="Permalink to this definition">¶</a></dt>
+<dd><p>Uses Minimum Covariance Determinand / Mahalanobis distance ideas to detect outliers, loosely based on <a class="reference internal" href="main.html#chawla-k-means-2013" id="id1">[CG13]</a>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="kangeroo.concat.Concatenator.print_offsets">
+<code class="descname">print_offsets</code><span class="sig-paren">(</span><em>columns=['corr_offs']</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/concat.html#Concatenator.print_offsets"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.concat.Concatenator.print_offsets" title="Permalink to this definition">¶</a></dt>
+<dd><p>Print the offset table in slightly more readable format, with the indexes that can be used for the parameter <code class="docutils literal"><span class="pre">no_offset</span></code> in <a class="reference internal" href="#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a> in column <code class="docutils literal"><span class="pre">idx</span></code> and the ‘transition zone’ index as the left-most level in the hierarchical index, which can be used for the parameter <code class="docutils literal"><span class="pre">use_spline</span></code> in <a class="reference internal" href="#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a>. Columns to be printed can be given as kwarg <code class="docutils literal"><span class="pre">columns</span></code>.</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-kangeroo.bspline">
+<span id="b-splines"></span><h2>B-splines<a class="headerlink" href="#module-kangeroo.bspline" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="kangeroo.bspline.Bspline">
+<em class="property">class </em><code class="descclassname">kangeroo.bspline.</code><code class="descname">Bspline</code><span class="sig-paren">(</span><em>locs</em>, <em>knots=None</em>, <em>order=4</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/bspline.html#Bspline"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.bspline.Bspline" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class to construct regression or smoothing splines in a B-spline basis. See <a class="reference internal" href="#eilers-flexible-1996" id="id2">[EM96]</a>, <a class="reference internal" href="#hastie-elements-2001" id="id3">[HTF01]</a>. If a smoothing spline is desired, only one vector of locations is to be passed to the constructor (since a knot is placed at every data location), otherwise a vector of knots also has to be passed, with a length &lt; that of the location vector.</p>
+<p><strong>Notes:</strong></p>
+<blockquote>
+<div><ul class="simple">
+<li>The difference matrix is currently hardcoded to second order, equivalent to a penalization of the second derivative of the spline.</li>
+<li>I’m augmenting the knot sequence with integer sequences beyond the two boundary knots. Should be checked if that works.</li>
+<li>Also check treatment of boundary knots.</li>
+</ul>
+</div></blockquote>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>locs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">list</span></code></a> or <a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.14)"><code class="xref py py-class docutils literal"><span class="pre">ndarray</span></code></a>) – Vector of values at which to evaluate the B-spline basis functions.</li>
+<li><strong>knots</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">list</span></code></a>, <a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.14)"><code class="xref py py-class docutils literal"><span class="pre">numpy.ndarray</span></code></a> or <a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">None</span></code></a>) – Vector of knots, including the ‘boundary’ knots. If <code class="docutils literal"><span class="pre">None</span></code>, will be set to be equal to <code class="docutils literal"><span class="pre">x</span></code>.</li>
+<li><strong>order</strong> – Order of the spline (<code class="docutils literal"><span class="pre">4</span></code> is cubic).</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p id="bibtex-bibliography-API-0"><table class="docutils citation" frame="void" id="eilers-flexible-1996" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label">[EM96]</td><td><em>(<a class="fn-backref" href="#id2">1</a>, <a class="fn-backref" href="#id4">2</a>, <a class="fn-backref" href="#id5">3</a>, <a class="fn-backref" href="#id8">4</a>)</em> Paul&nbsp;HC Eilers and Brian&nbsp;D. Marx. Flexible smoothing with B-splines and penalties. <em>Statistical science</em>, pages 89–102, 1996.</td></tr>
+</tbody>
+</table>
+<table class="docutils citation" frame="void" id="hastie-elements-2001" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label">[HTF01]</td><td><em>(<a class="fn-backref" href="#id3">1</a>, <a class="fn-backref" href="#id6">2</a>, <a class="fn-backref" href="#id7">3</a>)</em> Trevor Hastie, Robert Tibshirani, and Jerome Friedman. <em>The Elements of Statistical Learning</em>. Book. Springer, New York, January 2001.</td></tr>
+</tbody>
+</table>
+</p>
+<dl class="method">
+<dt id="kangeroo.bspline.Bspline.asymmetric2ndDerivativeMatrix">
+<code class="descname">asymmetric2ndDerivativeMatrix</code><span class="sig-paren">(</span><em>pad=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/bspline.html#Bspline.asymmetric2ndDerivativeMatrix"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.bspline.Bspline.asymmetric2ndDerivativeMatrix" title="Permalink to this definition">¶</a></dt>
+<dd><p>This should correspond to <a class="reference internal" href="#eilers-flexible-1996" id="id4">[EM96]</a>, but I’m not sure if it’s correct - see the symmetric variant below. It does seem to give the ‘more correct’ results though, minus the (lower) boundary effects.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="kangeroo.bspline.Bspline.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>y</em>, <em>l=None</em>, <em>split_index=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/bspline.html#Bspline.fit"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.bspline.Bspline.fit" title="Permalink to this definition">¶</a></dt>
+<dd><p>This fits either a regression spline or a smoothing spline (if <code class="docutils literal"><span class="pre">l</span></code> is given). Additionally, an additive offset can be fit by giving the <code class="docutils literal"><span class="pre">split_index</span></code> argument, which gives the index at which the input data <code class="docutils literal"><span class="pre">y</span></code> is assumed to be split into two separate pieces (see below). The offset is calculated such that the second piece is assumed to have the offset added with respect to the first. The fit spline is available as attribute <code class="xref py py-attr docutils literal"><span class="pre">spline</span></code>, the offset (if applicable) as <code class="xref py py-attr docutils literal"><span class="pre">offset</span></code> and the residuals of the data w.r.t. the spline in <code class="xref py py-attr docutils literal"><span class="pre">resid</span></code>.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>y</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">list</span></code></a> or <a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.14)"><code class="xref py py-class docutils literal"><span class="pre">ndarray</span></code></a>) – Vector of data values. May have <code class="xref py py-class docutils literal"><span class="pre">nan</span></code> values.</li>
+<li><strong>l</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">float</span></code></a> or <a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.6)"><code class="xref py py-obj docutils literal"><span class="pre">None</span></code></a>) – Regularizing parameter (<span class="math">\(\lambda\)</span> in <a class="reference internal" href="#eilers-flexible-1996" id="id5">[EM96]</a>, <a class="reference internal" href="#hastie-elements-2001" id="id6">[HTF01]</a>). If <code class="docutils literal"><span class="pre">None</span></code>, a regression spline is fit, otherwise a smoothing spline.</li>
+<li><strong>split_index</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.6)"><em>int</em></a>) – If an additive offset is to be fit, <code class="docutils literal"><span class="pre">split_index</span></code> denotes the index that splits the given timeseries into two parts (say <code class="docutils literal"><span class="pre">a</span></code> and <code class="docutils literal"><span class="pre">b</span></code>) according to the usual python indexing rules, i.e. <code class="docutils literal"><span class="pre">a,</span> <span class="pre">b</span> <span class="pre">=</span> <span class="pre">y[:split_index],</span> <span class="pre">y[split_index:]</span></code>.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><code class="docutils literal"><span class="pre">Bspline</span></code> object, for chaining (e.g. <code class="docutils literal"><span class="pre">bsp</span> <span class="pre">=</span> <span class="pre">Bspline(x).fit(y)</span></code>), with attributes <code class="docutils literal"><span class="pre">spline</span></code>, <code class="docutils literal"><span class="pre">offset</span></code> (if applicable) and <code class="docutils literal"><span class="pre">resid</span></code>/</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last"><a class="reference internal" href="#kangeroo.bspline.Bspline" title="kangeroo.bspline.Bspline"><code class="xref py py-class docutils literal"><span class="pre">Bspline</span></code></a></p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="kangeroo.bspline.Bspline.symmetric2ndDerivativeMatrix">
+<code class="descname">symmetric2ndDerivativeMatrix</code><span class="sig-paren">(</span><em>pad=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/bspline.html#Bspline.symmetric2ndDerivativeMatrix"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.bspline.Bspline.symmetric2ndDerivativeMatrix" title="Permalink to this definition">¶</a></dt>
+<dd><p>This is a symmetric variant of the 2nd derivative matrix. Have to check what is really correct since I’m using the B-spline construction from <a class="reference internal" href="#hastie-elements-2001" id="id7">[HTF01]</a>, not from <a class="reference internal" href="#eilers-flexible-1996" id="id8">[EM96]</a>. Also not sure my derivation of the upwind/downwind second differences at the boundaries is correct.</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-kangeroo.database">
+<span id="database"></span><h2>Database<a class="headerlink" href="#module-kangeroo.database" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="remember">
+<h3>Remember<a class="headerlink" href="#remember" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li><a class="reference internal" href="#kangeroo.database.DB.get_fields" title="kangeroo.database.DB.get_fields"><code class="xref py py-meth docutils literal"><span class="pre">DB.get_fields()</span></code></a> now should work with <cite>mult</cite> factor from <cite>fields</cite> table</li>
+</ul>
+<dl class="class">
+<dt id="kangeroo.database.DB">
+<em class="property">class </em><code class="descclassname">kangeroo.database.</code><code class="descname">DB</code><span class="sig-paren">(</span><em>uri='postgresql://arno&#64;/AKR'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/database.html#DB"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.database.DB" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class for interacting with the existing ‘databarc’ database. All tables can be loaded by accessing an attribute of the same name as the table (e.g. <cite>DB.fields</cite>).</p>
+<dl class="method">
+<dt id="kangeroo.database.DB.concat">
+<code class="descname">concat</code><span class="sig-paren">(</span><em>out_id</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/database.html#DB.concat"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.database.DB.concat" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reconstruct a concatenation saved in the databarc database.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>out_id</strong> – The <code class="docutils literal"><span class="pre">field_id</span></code> of the (concatenated / ‘output’) field whose concatenation should be reconstructed</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">A concatenation DataFrame of the format as constructed by the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/index.html#module-pandas" title="(in pandas v0.22.0)"><code class="xref py py-mod docutils literal"><span class="pre">pandas</span></code></a>-based part of this module (<code class="xref py py-class docutils literal"><span class="pre">Log</span></code>)</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> with <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.MultiIndex.html#pandas.MultiIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">MultiIndex</span></code></a> of the same characteristics as those used by <code class="xref py py-class docutils literal"><span class="pre">Log</span></code></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="kangeroo.database.DB.engine">
+<code class="descname">engine</code><em class="property"> = None</em><a class="headerlink" href="#kangeroo.database.DB.engine" title="Permalink to this definition">¶</a></dt>
+<dd><p><a class="reference external" href="http://docs.sqlalchemy.org/en/latest/core/connections.html#sqlalchemy.engine.Engine" title="(in SQLAlchemy v1.2)"><code class="xref py py-class docutils literal"><span class="pre">sqlalchemy.engine.Engine</span></code></a> connectable</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="kangeroo.database.DB.get_fields">
+<code class="descname">get_fields</code><span class="sig-paren">(</span><em>*ids</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kangeroo/database.html#DB.get_fields"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#kangeroo.database.DB.get_fields" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a DataFrame with data (column <code class="docutils literal"><span class="pre">x</span></code>) and flags (column <code class="docutils literal"><span class="pre">info</span></code>) from the field(s) with the given ids.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name" colspan="2">Positional Arguments:</th></tr>
+<tr class="field-odd field"><td>&#160;</td><td class="field-body"><ul class="first simple">
+<li><strong>*ids</strong> - Argument list of field ids (<strong>not</strong> station_ids). Field ids can be found from the <code class="xref py py-attr docutils literal"><span class="pre">field</span></code> table/attribute.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">DataFrame with <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.MultiIndex.html#pandas.MultiIndex" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">MultiIndex</span></code></a> containing the field ids and <code class="docutils literal"><span class="pre">x</span></code> and <code class="docutils literal"><span class="pre">info</span></code> (i.e. data and flag) columns</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last"><a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">pandas.DataFrame</span></code></a></p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+</div>
+
+
+           </div>
+           <div class="articleComments">
+            
+           </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="main.html" class="btn btn-neutral" title="Technical Aspects" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2017, Arno C. Hammann.
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'./',
+            VERSION:'0.1',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true,
+            SOURCELINK_SUFFIX: '.txt'
+        };
+    </script>
+      <script type="text/javascript" src="_static/jquery.js"></script>
+      <script type="text/javascript" src="_static/underscore.js"></script>
+      <script type="text/javascript" src="_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

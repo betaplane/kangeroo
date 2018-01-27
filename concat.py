@@ -20,17 +20,25 @@ class Concatenator(Reader):
         cc = Concatenator(directory='data/4/1', var='level)
 
     """
-    def __init__(self, var, directory=None, resample='30T', dispensable_thresh=3600, old_output_file=None, copy=None):
-        # if old_output_file is not None:
-        #     # NOTE: there seems to be a bug - the first data line of input.csv is inexplicably skipped.
-        #     var = pd.read_csv(os.path.join(directory, 'out', 'input.csv'), parse_dates=True, header=list(range(6)), index_col=0)
-        #     out = pd.read_csv(os.path.join(directory, 'out', 'output.csv'), parse_dates=True, index_col=0)
+    def __init__(self, directory=None, variable=None, resample='30T', correct_time=False, dispensable_thresh=3600, copy=None):
+        """
+        Usage example::
 
-        super().__init__(directory, copy)
-        var = self.organize_time(self.data.xs(var, 1, 'var'))
-        self.variable = var
+            cc = Concatenator(directory='data/4/1', var='level)
 
-        end_points = var.apply(self.get_start_end)
+        :param var: 
+        :param directory: 
+        :param resample: 
+        :param correct_time:
+        :param dispensable_thresh: 
+        :param copy: 
+        :returns: 
+        :rtype: 
+
+        """
+        super().__init__(directory, copy, variable, resample)
+
+        end_points = self.var.apply(self.get_start_end)
         starts = end_points.loc['start']
         ends = end_points.loc['end']
         D = self.distance(starts, ends)
@@ -50,7 +58,7 @@ class Concatenator(Reader):
             if d > -dispensable_thresh:
                 dispensable.append(len(order) - 2)
 
-        v = self.time_zone(var.iloc[:, order]).resample(resample).asfreq()
+        v = self.time_zone(self.var.iloc[:, order], correct_time).resample(resample).asfreq()
         self.delta = v.index.freq.delta.to_timedelta64()
         self.var = self.pre_screen(v, dispensable)
         self.out = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'extra', 'interp', 'outliers', 'concat'])
@@ -66,30 +74,19 @@ class Concatenator(Reader):
         self.file_names = self.var.columns.get_level_values('file')
         self.long_short = self.var.columns.get_level_values('length')
 
-    def organize_time(self, data, length=100):
-        """Reorganize a :class:`~pandas.DataFrame` according to the length of the Series.
-
-        :param length: Threshold which divides long from short time series (in days).
-        :returns: DataFrame with :class:`~pandas.MultiIndex` in the columns with topmost level ``length`` containing the labels ``long`` and ``short``
-        :rtype: :class:`~pandas.DataFrame`
-
-        """
-        time = data.apply(self.get_start_end) #.sort_values('start', 1)
-        d = time.diff(1, 0).drop('start') # duration
-        l = d[d > pd.Timedelta(length, 'D')]
-        long = l.dropna(1)
-        short = d[l.isnull()].dropna(1)
-
-        df = pd.concat((data[long.columns], data[short.columns]), 1, keys=['long', 'short'], names=['length'] + data.columns.names)
-        return df
-
-    def time_zone(self, var):
-        phase = var.apply(self.phase, 0)
-        i = np.arange(var.shape[1]).reshape((-1, 1))
-        tr = DecisionTreeRegressor(max_leaf_nodes=2).fit(i, phase)
-        cl = tr.apply(i)
-        a = var.iloc[:, cl == 1]
-        b = var.iloc[:, cl == 2]
+    def time_zone(self, var, correct):
+        if correct is False:
+            return pd.concat((var, ), 1, keys=[0], names=['time_adj'] + var.columns.names)
+        elif isinstance(correct, list):
+            a = var.iloc[: correct]
+            b = var.drop(a.columns, 1)
+        else:
+            phase = var.apply(self.phase, 0)
+            i = np.arange(var.shape[1]).reshape((-1, 1))
+            tr = DecisionTreeRegressor(max_leaf_nodes=2).fit(i, phase)
+            cl = tr.apply(i)
+            a = var.iloc[:, cl == 1]
+            b = var.iloc[:, cl == 2]
         a.index = a.index + pd.Timedelta(5, 'h')
         print("\nThe following files' timestamps have been changed by 5 hours:\n")
         for f in a.columns.get_level_values('file'):
@@ -108,15 +105,11 @@ class Concatenator(Reader):
         s = set(np.where(md > thresh)[0])
         k = s.intersection(disp).union(s.intersection({0, var.shape[1]}))
         self.dispensable = list(set(disp) - k)
-        print('\n\nThe following files have been removed from the concatenation as unnecessary outliers:\n')
+        if len(k) > 0:
+            print('\n\nThe following files have been removed from the concatenation as unnecessary outliers:\n')
         for i in k:
             print(var.columns[i][fx])
         return var.drop(var.columns[list(k)], axis=1)
-
-    @staticmethod
-    def get_start_end(col):
-        x = col.dropna()
-        return pd.Series((x.index.min(), x.index.max()), index=['start', 'end'])
 
     @staticmethod
     def phase(x, p=86400):
@@ -215,7 +208,7 @@ class Concatenator(Reader):
         sp = Bspline(j)
         sp.fit(c, smooth)
         orig_stdev = sp.resid.std() / np.sqrt(len(j))
-        from IPython.core.debugger import Tracer; Tracer()()
+
         labels = self.dbscan(sp.resid, eps=eps, return_labels=plot, masked=True)
         if plot:
             fig, axs = plt.subplots(1, 2, figsize=(12, 5))
@@ -260,14 +253,13 @@ class Concatenator(Reader):
 
             offs.update({
                 'conn': '{}-{}'.format(*self.long_short[i:i+2]),
-                'diff': self.var.ix[self.starts[i+1], i+1] - self.var.ix[self.ends[i], i]
             })
             offsets = offsets.append(offs, ignore_index=True)
 
         # second pass over contiguous sequences of 'short' time series - offset *corrections*
         cols = offsets.columns.tolist()
-        idx = offsets.columns.get_indexer(['offs', 'diff'])
-        cols.extend(['corr_offs', 'diff_csum'])
+        idx = offsets.columns.get_indexer(['offs'])
+        cols.extend(['corr_offs'])
         c = self.contiguous(self.long_short == 'short')
         corr_offs = []
         for a, b in c:
@@ -278,10 +270,10 @@ class Concatenator(Reader):
                 offs.index = self.file_names[a: b+1]
             else:
                 csum = - offs.iloc[:, idx].cumsum()
-                if self.long_short[b + 1] == 'long':
-                    corr = offs.stdev
-                    corr = - corr / corr.sum() * csum['offs'].iloc[-1]
-                    csum = pd.concat((csum['offs'] + corr, csum['diff']), 1)
+                if self.var.shape[1] == b + 2 and self.long_short[b + 1] == 'long':
+                    corr = offs.stdev.values.reshape((-1, 1))
+                    corr = - corr / corr.sum() * csum.iloc[-1].item()
+                    csum = csum + corr
                 offs = pd.concat((offs, csum), 1)
                 offs.index = self.file_names[a+1: b+2]
             offs.columns = cols
@@ -337,7 +329,7 @@ class Concatenator(Reader):
                 self.out.ix[j, 'interp'] = sp.spline
                 self.out['concat'] = self.out['concat'].where(self.out['concat'].notnull(), self.out['interp'])
 
-        if len(use_spline) == 0:
+        if len(use_spline) == 0 and 'odr_slope' in self.offsets.index:
             s = self.offsets.loc['odr_slope']
             c = s[np.abs(s - 1) > slope_tol].index.get_level_values(0)
             print('\n\nThe following transitions have slope abnormalities:\n')
@@ -374,13 +366,26 @@ class Concatenator(Reader):
         return var
 
     def to_csv(self):
-        var = self.merge_info()
-        var.to_csv(os.path.join(self.directory, 'out', 'input.csv'))
-        self.out.to_csv(os.path.join(self.directory, 'out', 'output.csv'))
-        self.offsets.T.to_csv(os.path.join(self.directory, 'out', 'offsets.csv'))
+        if hasattr(self, 'old_var'):
+            old_files = self.old_var.columns.get_level_values('file')
+            new_files = self.var.columns.get_level_values('file')
+            intsec = old_files.intersection(new_files)
+            f = old_files.get_indexer(intsec)
+            old_var = self.old_var.drop(intsec, 1, level='file')
+            self.starts[0] = self.var.index.get_loc(self.old_var.columns.get_level_values('start')[f[0]])
+            var = pd.concat((old_var, self.merge_info()), 1).dropna(0, 'all')
+            self.out = self.out.iloc[self.starts[0]:].combine_first(self.old_out)
+        else:
+            var = self.merge_info().dropna(0, 'all')
+
+        out_path = os.path.join(self.directory, 'out')
+        if not os.path.exists(out_path):
+            os.makedirs(out_path)
+        var.to_csv(os.path.join(out_path, '{}_input.csv'.format(self.variable)))
+        self.out.to_csv(os.path.join(out_path, '{}_output.csv'.format(self.variable)))
 
 
-    # doesn't work if gaps aren't infilled!
+    # autoregressive fit - not used currently + doesn't work if gaps aren't infilled yet!
     def ar(self, i, plot=False, ar=1, pad=500):
         a, b = self.contiguous(self.long_short == 'short')[i]
         a = max(a-1, 0)

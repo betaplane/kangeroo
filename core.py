@@ -33,17 +33,35 @@ class Reader(object):
     ]
     """Column names in the data logger files. Each sub-list is tried until a match is found; if the names are different, an error will result."""
 
-    def __init__(self, directory=None, copy=None):
-        if directory is not None:
-            files = glob(os.path.join(directory, '*.csv'))
-            self.data = pd.concat([self.read(f) for f in files], 1)
-            self.directory = directory
+    def __init__(self, directory=None, copy=None, variable=None, resample='30T'):
+        if copy is not None:
+            for i in ['data', 'directory', 'variable', 'old_var', 'old_out']:
+                setattr(self, i, getattr(copy, i, None))
         else:
-            self.data = copy.data
-            self.directory = copy.directory
+            self.directory = directory
+            self.variable = variable
+            files = glob(os.path.join(directory, '*.csv'))
+            end = None
+            out_path = os.path.join(directory, 'out')
+            if os.path.isdir(out_path):
+                print('reading old output directory {}\n'.format(out_path))
 
-        self.temp = self.data.xs('temp', 1, 'var')
-        self.level = self.data.xs('level', 1, 'var')
+                # NOTE: there seems to be a bug - the first data line of input.csv is inexplicably skipped.
+                # However, it does seem to work if na rows are dropped (see Concatenator.to_csv)
+                self.old_var = pd.read_csv(os.path.join(out_path, '{}_input.csv'.format(variable)),
+                                  parse_dates=True, header=list(range(6)), index_col=0).resample(resample).asfreq()
+                self.old_out = pd.read_csv(os.path.join(out_path, '{}_output.csv'.format(variable)),
+                                  parse_dates=True, index_col=0).resample(resample).asfreq()
+                old_files = [os.extsep.join([os.path.join(directory, f), 'csv']) for f in self.old_var.columns.get_level_values('file')]
+
+                l = self.old_var.columns.get_level_values('length')
+                i = np.arange(len(l))[l == 'long'].max()
+                files = list(set(files).symmetric_difference(old_files[:i]))
+                end = pd.Timestamp(self.old_var.columns[i: i+1].get_level_values('end').item())
+
+            self.data = pd.concat([self.read(f, after=end) for f in files], 1)
+
+        self.var = self.organize_time(self.data.xs(self.variable, 1, 'var'))
 
     @staticmethod
     def _skip(filename):
@@ -55,11 +73,11 @@ class Reader(object):
                         return i
             return 0
         except Exception as ex:
-            raise FileReadError(filename)
+            raise FileReadError(filename, ex)
 
 
     @classmethod
-    def read(cls, filename):
+    def read(cls, filename, after=None):
         """Read a data logger .csv file and return a dictionary of DataFrames for individual columns of the file. Each DataFrame contains one column with the data and one column with a flag value (for subsequent use) which is set to 1 for each record. The :class:`~pandas.MultiIndex` has the levels:
             * *file* - the original filename (without extension) from which the data was read
             * *var* - the variable name (from the logger file)
@@ -71,7 +89,6 @@ class Reader(object):
         :rtype: :class:`~pandas.DataFrame`
 
         """
-        print("Reading file {}".format(filename))
 
         # provide some alternatives for different logger file formats
         for cols in cls.logger_columns:
@@ -92,11 +109,37 @@ class Reader(object):
             d.index = pd.DatetimeIndex(d.apply(lambda r:'{} {}'.format(r.Date, r.Time), 1))
             d.drop(['Date', 'Time'], 1, inplace=True)
             d.columns = [n.casefold() for n in d.columns]
-            return pd.concat((d, ), 1, keys=[os.path.basename(os.path.splitext(filename)[0])],
+            if after is not None and d.index.max() < after:
+                print('discarding file {}'.format(filename))
+                return None
+            else:
+                print('read file {}'.format(filename))
+                return pd.concat((d, ), 1, keys=[os.path.basename(os.path.splitext(filename)[0])],
                              names=['file', 'var'])
         except UnboundLocalError:
             raise Exception('problems with {}'.format(filename))
 
+    def organize_time(self, data, length=100):
+        """Reorganize a :class:`~pandas.DataFrame` according to the length of the Series.
+
+        :param length: Threshold which divides long from short time series (in days).
+        :returns: DataFrame with :class:`~pandas.MultiIndex` in the columns with topmost level ``length`` containing the labels ``long`` and ``short``
+        :rtype: :class:`~pandas.DataFrame`
+
+        """
+        time = data.apply(self.get_start_end) #.sort_values('start', 1)
+        d = time.diff(1, 0).drop('start') # duration
+        l = d[d > pd.Timedelta(length, 'D')]
+        long = l.dropna(1)
+        short = d[l.isnull()].dropna(1)
+
+        df = pd.concat((data[long.columns], data[short.columns]), 1, keys=['long', 'short'], names=['length'] + data.columns.names)
+        return df
+
+    @staticmethod
+    def get_start_end(col):
+        x = col.dropna()
+        return pd.Series((x.index.min(), x.index.max()), index=['start', 'end'])
 
     @staticmethod
     def check_directory(filename, variable, base_path='.'):

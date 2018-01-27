@@ -4,9 +4,9 @@
 # You can set these variables from the command line.
 SPHINXOPTS    =
 SPHINXBUILD   = sphinx-build
-SPHINXPROJ    = darc
+SPHINXPROJ    = kangeroo
 SOURCEDIR     = .
-BUILDDIR      = _build
+BUILDDIR      = ..
 
 # Put it first so that "make" without argument is like "make help".
 help:

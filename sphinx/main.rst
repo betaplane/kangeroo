@@ -165,10 +165,33 @@ The :meth:`~.Concatenator.concat` method is invoked automatically by the :class:
 
 resets the computed offsets for files ``5`` and ``17`` ('Bridge2_K65' and 'AK4_08_22_2014_levelBridge2downstream') to zero and performs a spline interpolation across the ``short`` series block ``3`` (containing only 'Levelogger_LL1_temp_Bridge2_2011').
 
+
+Finally, a call to :meth:`~.Concatenator.to_csv` saves the generated concatenation in a folder 'out' underneath the directory with which :class:`.Concatenator` has been called::
+
+    cc.to_csv()
+
+Two files are saved, *<var>_input.csv* and *<var>_output.csv*, where *<var>* is replaced with the name of the variable which has been concatenated. The file ending in *input.csv* corresponds to the :class:`~pandas.DataFrame` constructed from the input time series, with all discared series removed and resampled according to the arguments passed to the :class:`.Concatenator` constructor (default is 30 minutes). In other words, it is a .csv serialization of the :attr:`~.Concatenator.var` attribute. It contains 6 header rows with metadata information pertaining to each of the input time series (in columns):
+
+* ``file`` - the filename corresponding to each columns
+* ``length`` - the classification into ``long`` and ``short``
+* ``time_adj`` - the time adjustment performed on the read-in timestamps (in hours)
+* ``start`` - the starting index (i.e. after discarding outliers at the beginning)
+* ``end`` - the final index (excluding discarded outliers at the end)
+* ``corr_offs`` - the additive offset applied to the values of the time series before the concatenation
+
+The file ending in *output.csv* contains the actual concatenated series in the column ``concat`` as well as some auxiliary data points resulting from the procedure. Of interest may be the columns ``interp``, which has the spline fits (at the respective time stamps) which were used to interpolate missing / discarded values, and ``outliers`` which marks outliers by the index corresponding to the column index, in the *input.csv* file / the :attr:`~.Concatenator.var` attribute, of the original time series which contained the respective data point.
+
 .. figure:: Figure_3.png
 
    Example of the smoothing spline interpolation resulting from using the argument ``use_spline`` in method :meth:`~.Concatenator.concat`.
 
+
+Appending to an existing concatenation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Appending to an existing concatenation is fairly automatic. If an 'out' folder exists underneath the logger file directory, the output files are read in and only those logger files not already contained in the concatenation (and with a later start date) are ingested. The concatenation procedure starts from the last ``long`` time series so that offsets can be computed properly. All the methods operate only on those files starting with the last ``long`` series, including :meth:`~.Concatenator.plot`. However, when :meth:`~.Concatenator.to_csv` is called, the series and DataFrames are fused appropriately before writing out the output files.
+
+If there are no 'new' files present, the internal data of the :class:`.Concatenator` are popluated in such a way that calling :meth:`~.Concatenator.plot` produces a plot identical to the one produced when the original concatenation was performed.
 
 Other remarks
 -------------

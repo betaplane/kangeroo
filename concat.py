@@ -35,55 +35,60 @@ class Concatenator(Reader):
     """
     Usage example::
 
-        cc = Concatenator(directory='data/4/1', var='level)
+        cc = Concatenator(directory='data/4/1', variable='level', correct_time=True)
+
+    :param directory: a directory which contains all the .csv logger files to be concatenated
+    :param variable: the name of the variable to be concatenated (e.g. 'level' or 'temp')
+    :param resample: the resample time interval in `pandas offset alias format <https://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`_
+    :param correct_time: If ``True``, try to autocorrect the wrong time zone settings (probably very unreliable if there are only few time series). Alternatively, give a list of indexes of the time series to be corrected (after temporal ordering). Let the algorith run a first time, check which series need correcting, and then run it a second time.
+    :type correct_time: :obj:`bool` or :obj:`list`
+    :param dispensable_thresh: Maximum gap between two time series (in seconds) which allows a third time series which would bridge this gap to be removed. This third time series will only be removed if it is classified as an outlier by :meth:`.pre_screen` **and** this threshold criterium is satisfied. 
+    :param copy: see :class:`.Reader`
 
     """
     def __init__(self, directory=None, variable=None, resample='30T', correct_time=False, dispensable_thresh=3600, copy=None):
-        """
-        Usage example::
-
-            cc = Concatenator(directory='data/4/1', var='level)
-
-        :param var: 
-        :param directory: 
-        :param resample: 
-        :param correct_time:
-        :param dispensable_thresh: 
-        :param copy: 
-        :returns: 
-        :rtype: 
-
-  i      """
         super().__init__(directory, copy, variable, resample)
+        new = -1
+        if hasattr(self, 'old_var'):
+            old_files = self.old_var.columns.get_level_values('file')
+            new_files = self.var.columns.get_level_values('file')
+            new = len(set(new_files) - set(old_files))
 
-        end_points = self.var.apply(self.get_start_end)
-        starts = end_points.loc['start']
-        ends = end_points.loc['end']
-        D = self.distance(starts, ends)
+        if new == 0:
+            print('\nno new files')
+            self.out = self.old_out
+            self.var = self.old_var
+            self.starts = self.var.index.get_indexer(pd.DatetimeIndex(self.var.columns.get_level_values('start')))
+            self.ends = self.var.index.get_indexer(pd.DatetimeIndex(self.var.columns.get_level_values('end')))
+        else:
+            end_points = self.var.apply(self.get_start_end)
+            starts = end_points.loc['start']
+            ends = end_points.loc['end']
+            D = self.distance(starts, ends)
 
-        with catch_warnings():
-            simplefilter('ignore')
-            _, p = csgraph.dijkstra(-D, return_predecessors=True)
+            with catch_warnings():
+                simplefilter('ignore')
+                _, p = csgraph.dijkstra(-D, return_predecessors=True)
 
-        end = ends.argsort()[-1]
-        start = starts.argsort()[0]
-        order = [start, p[end, start]]
+            end = ends.argsort()[-1]
+            start = starts.argsort()[0]
+            order = [start, p[end, start]]
 
-        dispensable = []
-        while order[-1] != end:
-            order.append(p[end, order[-1]])
-            d = D[order[-1], order[-3]]
-            if d > -dispensable_thresh:
-                dispensable.append(len(order) - 2)
+            dispensable = []
+            while order[-1] != end:
+                order.append(p[end, order[-1]])
+                d = D[order[-1], order[-3]]
+                if d > -dispensable_thresh:
+                    dispensable.append(len(order) - 2)
 
-        v = self.time_zone(self.var.iloc[:, order], correct_time).resample(resample).asfreq()
-        self.delta = v.index.freq.delta.to_timedelta64()
-        self.var = self.pre_screen(v, dispensable)
-        self.out = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'extra', 'interp', 'outliers', 'concat'])
+            v = self.time_zone(self.var.iloc[:, order], correct_time).resample(resample).asfreq()
+            self.delta = v.index.freq.delta.to_timedelta64()
+            self.var = self.pre_screen(v, dispensable)
+            self.out = pd.DataFrame(np.nan, index=self.var.index, columns=['resid', 'extra', 'interp', 'outliers', 'concat'])
 
-        self.traverse()
-        self.concat()
-        print('')
+            self.traverse()
+            self.concat()
+            print('')
 
     def prepare(self):
         end_points = self.var.apply(self.get_start_end)
@@ -401,7 +406,7 @@ class Concatenator(Reader):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         var.to_csv(os.path.join(out_path, '{}_input.csv'.format(self.variable)))
-        self.out.to_csv(os.path.join(out_path, '{}_output.csv'.format(self.variable)))
+        self.out.dropna(0, 'all').to_csv(os.path.join(out_path, '{}_output.csv'.format(self.variable)))
 
 
     # autoregressive fit - not used currently + doesn't work if gaps aren't infilled yet!

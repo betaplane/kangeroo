@@ -13,7 +13,9 @@
     * allow for skipping of non-necessary files after the first round
         * will require spline and/or overlap routins that don't recompute outliers **and** reset the :attr:`starts` / :attr:`ends`
     * check other possibilities for confidence of offsets, e.g.
-        * :math:`R^2` / generalized OLS ideas
+        * :math:`R^2` / GLS ideas
+    * use of both variables in routines that are prone to fail, in particular
+        * time zone adjustments (maybe temp has more pronounced daily cycles)
 
 """
 import pandas as pd
@@ -23,7 +25,6 @@ import scipy.odr as odr
 from sklearn.covariance import MinCovDet
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.cluster import DBSCAN
-from statsmodels.api import tsa
 import matplotlib.pyplot as plt
 import os
 from warnings import catch_warnings, simplefilter
@@ -480,31 +481,6 @@ class Concatenator(Reader):
             os.makedirs(out_path)
         var.to_csv(os.path.join(out_path, '{}_input.csv'.format(self.variable)))
         self.out.dropna(0, 'all').to_csv(os.path.join(out_path, '{}_output.csv'.format(self.variable)))
-
-
-    # autoregressive fit - not used currently + doesn't work if gaps aren't infilled yet!
-    def ar(self, i, plot=False, ar=1, pad=500):
-        a, b = self.contiguous(self.long_short == 'short')[i]
-        a = max(a-1, 0)
-
-        knots = self.knots[a: b+1]
-        j = np.arange(max(0, knots[0] - pad), min(self.var.shape[0]+ 1, knots[-1] + pad + 1))
-        concat = self.out.ix[j, 'concat']
-        a = tsa.AR(concat).fit(ar)
-        r = [a.resid[self.var.index[k]] for k in knots]
-        print(r)
-
-        if plot:
-            fig, ax = plt.subplots()
-            plt.plot(concat)
-            for k in knots:
-                ax.axvline(self.var.index[k], color='g')
-
-            bx = ax.twinx()
-            bx.plot(a.resid, 'r')
-            plt.show()
-        else:
-            return r
 
     def plot(self):
         """Produce a helpful plot to inspect the concatenated timeseries.

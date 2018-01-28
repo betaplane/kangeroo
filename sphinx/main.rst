@@ -42,13 +42,13 @@ For a variety of reasons, I'm not providing a setup.py script - most importantly
 
 The required dependencies are most easily installed via `conda <https://conda.io/docs/user-guide/index.html>`_::
 
-    conda install -n <environment> python=3 numpy scipy statsmodels scikit-learn matplotlib pandas=0.20
+    conda install -n <environment> python=3 numpy scipy scikit-learn matplotlib pandas=0.20
 
 The version of pandas should probably be specified for the moment since I've had unpredictable changes to the results after upgrading to a newer version and haven't tracked down the reasons yet. Python 3 is required.
 
 An environment can be create at the same time as installing the required packages::
 
-    conda create -n <environment_name> python=3 numpy scipy statsmodels scikit-learn matplotlib pandas=0.20
+    conda create -n <environment_name> python=3 numpy scipy scikit-learn matplotlib pandas=0.20
 
 I recommend adding ``ipython`` to the list of packages to install. Furthermore, to use the :mod:`kangeroo.database` module, ``sqlalchemy`` is needed.
 

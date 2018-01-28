@@ -5,7 +5,7 @@ The concatenation follows the following steps:
 
 #. The csv files are read in and placed in a :class:`~pandas.DataFrame` attached to the :class:`.Reader` as :attr:`~.Reader.data`. This is handled by :mod:`kangeroo.core`, while everything that follows below is contained in :mod:`kangeroo.concat`.
 
-#. The individual time series (columns in the :class:`~pandas.DataFrame` :attr:`~.Reader.data`) are sorted into 'long' and 'short' ones based on a length threshold, in :meth:`~Concatenator.organize_time`. The default threshold is 100 days. Only 'short' time series will later be adjusted by a potential additive offset.
+#. The individual time series (columns in the :class:`~pandas.DataFrame` :attr:`~.Reader.data`) are sorted into 'long' and 'short' ones based on a length threshold, in :meth:`~.Concatenator.organize_time`. The default threshold is 100 days. Only 'short' time series will later be adjusted by a potential additive offset.
 
 #. A distance measure is computed in time which corresponds to the temporal gap or overlap between any two timeseries. An overlap has negative distance. The :func:`Dijkstra <scipy.sparse.csgraph.dijkstra>` algorithm is then used to find the path through this graph which prefers the largest overlaps.
 
@@ -35,9 +35,27 @@ A smoothing spline is fit over a period comprising a certain number of time step
 Usage
 -----
 
-The :class:`kangeroo.Concatenator` is invoked by giving a directory containing all logger csv files as argument, together with the variable for which the concatenation should be performed (e.g., ``temp`` or ``level``)::
+Installation
+^^^^^^^^^^^^
 
-    In [1]: from kangeroo.concat import Concatenator
+For a variety of reasons, I'm not providing a setup.py script - most importantly the fact that the required dependencies are not easily installed together from pip. So I recommend just downloading the code from the `release page <https://github.com/betaplane/kangeroo/releases>`_, unpacking it in some working directory and using it as a normal local python package without 'installing' it. That way, the code can also be easily modified.
+
+The required dependencies are most easily installed via `conda <https://conda.io/docs/user-guide/index.html>`_::
+
+    conda install -n <environment> python=3 numpy scipy statsmodels scikit-learn matplotlib pandas=0.20
+
+The version of pandas should probably be specified for the moment since I've had unpredictable changes to the results after upgrading to a newer version and haven't tracked down the reasons yet. Python 3 is required.
+
+An environment can be create at the same time as installing the required packages::
+
+    conda create -n <environment_name> python=3 numpy scipy statsmodels scikit-learn matplotlib pandas=0.20
+
+First invocation
+^^^^^^^^^^^^^^^^
+
+The :class:`.Concatenator` is invoked by giving a directory containing all logger csv files as argument, together with the variable for which the concatenation should be performed (e.g., ``temp`` or ``level``)::
+
+    In [1]: from kangeroo import Concatenator
 
     In [2]: cc = Concatenator(directory='data/4/1', var='level')
     Reading file data/4/1/Bridge2_K65.csv
@@ -86,7 +104,7 @@ The :class:`kangeroo.Concatenator` is invoked by giving a directory containing a
 
     3 ['Levelogger_LL1_temp_Bridge2_2011', 'AK4_LL-8_June10_2012']
 
-This performs all the steps described in `Technical Aspects`_ automatically and should produce a reasonable concatenated time series. The time series read in from the logger files populate a :class:`~pandas.DataFrame` with time stamps in the :class:`~pandas.DatetimeIndex` and a columns for each input file in ``directory``. The variable (``var``) on which the :class:`~kangeroo.Concatenator` operates resides in the attribute :attr:`.var`, which will also be subsampled to the desired frequency, whereas the original data (including all variables found in the input files) populates a :class:`~pandas.DataFrame` accessible as :attr:`.data`.
+This performs all the steps described in `Technical Aspects`_ automatically and should produce a reasonable concatenated time series. The time series read in from the logger files populate a :class:`~pandas.DataFrame` with time stamps in the :class:`~pandas.DatetimeIndex` and a columns for each input file in ``directory``. The variable (``var``) on which the :class:`.Concatenator` operates resides in the attribute :attr:`.var`, which will also be subsampled to the desired frequency, whereas the original data (including all variables found in the input files) populates a :class:`~pandas.DataFrame` accessible as :attr:`~.Concatenator.data`.
 
 The routine prints the name of all the ingested files, a message indicating which files have had their timestamps changed, which files have been removed by the pre-screening, and a message about joins with regression slopes significantly different from 1 (in both cases, only if applicable).
 
@@ -153,20 +171,20 @@ Bear in mind, though, that the data contained in :attr:`~.Concatenator.offsets` 
 
 It is to be noted that :meth:`.print_offsets` gives two important pieces of information for computing the final concatenation:
 
-#. The indexes to be used for the ``no_offset`` argument to :meth:`~.Concatenator.concat` in column ``idx``. Do not be surprised by the fact that the indexes are not contiguous - this is because ``long`` series have been removed from the display (but are present in the :attr:`~.Concatenator.offsets :class:`~pandas.DataFrame`).
+#. The indexes to be used for the ``no_offset`` argument to :meth:`~.Concatenator.concat` in column ``idx``. Do not be surprised by the fact that the indexes are not contiguous - this is because ``long`` series have been removed from the display (but are present in the :attr:`~.Concatenator.offsets` DataFrame).
 
 #. The indexes of the 'blocks' of ``short`` time series to be used for the ``use_spline`` argument as the left-most index. This index counts the blocks of colored vertical bands in the :meth:`.plot`.
 
 The final concatenation
 ^^^^^^^^^^^^^^^^^^^^^^^
-The :meth:`~.Concatenator.concat` method is invoked automatically by the :class:`~kangeroo.Concatenator` constructor and performs the first concatenation which can then be inspected by calling :meth:`.plot`. The :meth:`~.Concatenator.concat` can also be invoked directly again and can take the optional arguments ``no_offset`` and ``use_spline`` (apart from some paramters governing the behavior of the employed algorithms). Both these arguments are given as :obj:`lists<list>`; ``no_offset`` counts all ``short`` time series and is given in the ``idx`` column of table printed when calling :meth:`.print_offsets`, while ``use_spline`` counts the contiguous blocks of ``short`` series separated by ``long``, permanent ones and is given by the top-level (leftmost) index of the printed table. Invoking, for example::
+The :meth:`~.Concatenator.concat` method is invoked automatically by the :class:`~.Concatenator` constructor and performs the first concatenation which can then be inspected by calling :meth:`.plot`. The :meth:`~.Concatenator.concat` can also be invoked directly again and can take the optional arguments ``no_offset`` and ``use_spline`` (apart from some paramters governing the behavior of the employed algorithms). Both these arguments are given as :obj:`lists<list>`; ``no_offset`` counts all ``short`` time series and is given in the ``idx`` column of table printed when calling :meth:`.print_offsets`, while ``use_spline`` counts the contiguous blocks of ``short`` series separated by ``long``, permanent ones and is given by the top-level (leftmost) index of the printed table. Invoking, for example::
 
     cc.concat(no_offset=[5, 17], use_spline=[3])
 
 resets the computed offsets for files ``5`` and ``17`` ('Bridge2_K65' and 'AK4_08_22_2014_levelBridge2downstream') to zero and performs a spline interpolation across the ``short`` series block ``3`` (containing only 'Levelogger_LL1_temp_Bridge2_2011').
 
 
-Finally, a call to :meth:`~.Concatenator.to_csv` saves the generated concatenation in a folder 'out' underneath the directory with which :class:`.Concatenator` has been called::
+Finally, a call to :meth:`.to_csv` saves the generated concatenation in a folder 'out' underneath the directory with which :class:`.Concatenator` has been called::
 
     cc.to_csv()
 
@@ -189,9 +207,18 @@ The file ending in *output.csv* contains the actual concatenated series in the c
 Appending to an existing concatenation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Appending to an existing concatenation is fairly automatic. If an 'out' folder exists underneath the logger file directory, the output files are read in and only those logger files not already contained in the concatenation (and with a later start date) are ingested. The concatenation procedure starts from the last ``long`` time series so that offsets can be computed properly. All the methods operate only on those files starting with the last ``long`` series, including :meth:`~.Concatenator.plot`. However, when :meth:`~.Concatenator.to_csv` is called, the series and DataFrames are fused appropriately before writing out the output files.
+Appending to an existing concatenation is fairly automatic. If an 'out' folder exists underneath the logger file directory, the output files are read in and only those logger files not already contained in the concatenation (and with a later start date) are ingested. The concatenation procedure starts from the last ``long`` time series so that offsets can be computed properly. All the methods operate only on those files starting with the last ``long`` series, including :meth:`~.Concatenator.plot`. However, when :meth:`.to_csv` is called, the series and DataFrames are fused appropriately before writing out the output files.
 
 If there are no 'new' files present, the internal data of the :class:`.Concatenator` are popluated in such a way that calling :meth:`~.Concatenator.plot` produces a plot identical to the one produced when the original concatenation was performed.
+
+Tests
+^^^^^
+
+A basic test on the AK-4-1 data is included and can be run by executing::
+
+    python -m unittest kangeroo/tests.py
+
+It does however require an example directory as a tar.gz archive, including the '/out' subdirectory, which I'm not including in the git repo.
 
 Other remarks
 -------------

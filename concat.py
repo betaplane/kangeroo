@@ -45,6 +45,18 @@ class Concatenator(Reader):
     :param dispensable_thresh: Maximum gap between two time series (in seconds) which allows a third time series which would bridge this gap to be removed. This third time series will only be removed if it is classified as an outlier by :meth:`.pre_screen` **and** this threshold criterium is satisfied. 
     :param copy: see :class:`.Reader`
 
+    .. attribute:: var
+
+        The :class:`~pandas.DataFrame` containing the data to be concatenated. The columns refer to and are labeled by (among others, a :class:`~pandas.MultiIndex` is used) the input file names. 
+
+    .. attribute:: data
+
+        See :attr:`.Reader.data`. As opposed to :attr:`.var`, which contains only the variable being concatenated, ``data`` contains all the variables read in from the input files.
+
+    .. attribute:: offsets
+
+        The :class:`~pandas.DataFrame` used internally to keep track of all the statistics used to perform the concatenation. Mostly useful for debugging; the actual calculated additive offset values should rather be inspected by calling :meth:`.print_offsets`.
+
     """
     def __init__(self, directory=None, variable=None, resample='30T', correct_time=False, dispensable_thresh=3600, copy=None):
         super().__init__(directory, copy, variable, resample)
@@ -98,6 +110,15 @@ class Concatenator(Reader):
         self.long_short = self.var.columns.get_level_values('length')
 
     def time_zone(self, var, correct):
+        """Automatic detection of which files might have had their time zone incorrectly set. Not guaranteed to work, and certianly not with only a few input files. Based on computing the phase of the daily cycle by projection onto a single daily complex exponential. The correction amount is fixed for now to the 5 hour difference between LA and Greenland.
+
+        :param var: the input :class:`~pandas.DataFrame` of the type constructed for the :attr:`.var` attribute
+        :param correct: either ``True`` or ``False`` to indicate whether correction should be attempted, or a list of integer column indexes corresponding to the columns in :attr:`.var` which should be corrected
+        :type correct: :obj:`bool` or :obj:`list`
+        :returns: a corrected DataFrame with added :class:`~pandas.MultiIndex` level containing the time correction in hours
+        :rtype: :class:`~pandas.DataFrame`
+
+        """
         if correct is False:
             return pd.concat((var, ), 1, keys=[0], names=['time_adj'] + var.columns.names)
         elif isinstance(correct, list):
@@ -136,6 +157,14 @@ class Concatenator(Reader):
 
     @staticmethod
     def phase(x, p=86400):
+        """The phase detection part for the :meth:`.time_zone` autocorrection method.
+
+        :param x: a single time series (column of :attr:`.var`)
+        :type x: :class:`~pandas.Series`
+        :param p: the length of the cycle in seconds (default one day)
+        :returns: the calculated phase in radians
+
+        """
         x = x.dropna()
         t = x.index.values.astype('datetime64[s]').astype(float)
         N = len(x)
@@ -145,8 +174,9 @@ class Concatenator(Reader):
         return phase
 
     @staticmethod
-    def distance(start, stop):
-        d = (stop.values.reshape((1, -1)) - start.values.reshape((-1, 1))).astype('timedelta64[s]').astype(float)
+    def distance(start, end):
+        """Construct a distance matrix from two vectors containing the start and end times of the time series, respectively. The order in the vectors has to be the same as in the :attr:`.var` DataFrame."""
+        d = (end.values.reshape((1, -1)) - start.values.reshape((-1, 1))).astype('timedelta64[s]').astype(float)
         D = np.abs(d)
         return np.where(D < D.T, d, d.T) + np.diag(np.repeat(-np.inf, len(start)))
 
@@ -161,6 +191,16 @@ class Concatenator(Reader):
 
     # this is the outlier detection routine, using DBSCAN on either the differences (overlap) or residuals (spline)
     def dbscan(self, resid, return_labels=False, contiguous=False, masked=False, eps=2):
+        """The outlier detection method based on the :class:`sklearn.cluster.DBSCAN` method.
+
+        :param resid: the input to be clustered (either differences between concurrent points of overlapping timeseries or residuals from the :class:`.Bspline` fit)
+        :param return_labels: wether to return a list of boolean index vectors, each corresponding to a label from the DBSCAN method (used for plotting)
+        :param contiguous: whether only to return the largest *temporally contiguous* group of labels
+        :param masked: whether the input data as a :class:`~numpy.ma.MaskedArray`
+        :param eps: the ``eps`` parameter for the :class:`~sklearn.cluster.DBSCAN` method (maximum distance to nearest neighbor for inclusion in cluster)
+        :returns: :class:`~numpy.ndarray` of booleans corresponding to the largest cluster or a :obj:`slice` corresponding to the largest *temporally contiguous* cluster, or a :obj:`tuple` containing that object *and* the list of boolean arrays corresponding to all labels (for plotting)
+
+        """
         x = resid[~resid.mask] if masked else resid
         db = DBSCAN(eps=eps).fit(x.reshape((-1, 1)))
         labels, counts = np.unique(db.labels_, return_counts=True)
@@ -177,6 +217,15 @@ class Concatenator(Reader):
 
     # orthogonal distance regression
     def odr(self, i, plot=False, eps=2):
+        """Orthogonal distance regression for temporally concurrent points of overlapping time series. Uses :mod:`scipy.odr`.
+
+        :param i: the 'join' index (``0`` is the index of the join between series ``0`` and ``1`` etc.)
+        :param plot: whether or not to plot the given join
+        :param eps: the ``eps`` param to be handed down to the :meth:`.dbscan` method for outlier detection
+        :returns: dictionary with computed statistics, including the additive offset (key ``offs``)
+        :rtype: :obj:`dict`
+
+        """
         c = self.var.iloc[:, i:i+2].dropna(0, 'any')
 
         # outliers are detected from the differenc between the two series
@@ -224,6 +273,17 @@ class Concatenator(Reader):
             }
 
     def spline(self, i, plot=False, smooth = 10., eps=2, pad=20):
+        """Smoothing spline fit at join between time series where there is no overlap. **Will fail if the gap is too long.**
+
+        :param i: 'join' index as in :meth:`.odr`
+        :param plot: whether or not to plot the join
+        :param smooth: smoothing parameter ``l`` for the :meth:`.Bspline.fit` method
+        :param eps: ``eps`` parameter for :class:`~sklearn.cluster.DBSCAN` method
+        :param pad: number of data points on either side of the middle of the gap to use for the spline fit (if the connection is flush, the middle is the first point of the second time series)
+        :returns: dictionary of calculated statistices, including offset (key ``offs``)
+        :rtype: :obj:`dict`
+
+        """
         m = int(np.ceil((self.starts[i+1] + self.ends[i]) / 2))
         j = np.arange(m - pad, m + pad + 1)
         jdx = self.out.index[j]
@@ -262,6 +322,11 @@ class Concatenator(Reader):
             }
 
     def traverse(self, smooth=10.):
+        """Traverse the 'joins' in order and compute offsets.
+
+        :param smooth: smoothing parameter ``l`` for the :class:`.Bspline` fits at non-overlapping joins
+
+        """
         self.prepare()
         offsets = pd.DataFrame()
 
@@ -378,6 +443,8 @@ class Concatenator(Reader):
                 self.out.loc[z.index, 'concat'] = z
 
     def merge_info(self):
+        """Merge metadata into columns :class:`~pandas.MultiIndex` of a copy of :attr:`.var`, which is returned.
+        """
         cols = self.var.columns.to_frame(False)
         cols['start'] = self.var.index[self.starts]
         cols['end'] = self.var.index[self.ends]
@@ -390,6 +457,12 @@ class Concatenator(Reader):
         return var
 
     def to_csv(self):
+        """
+        Write the computed concatenation to file. Two files are produced in a directory called 'out' below the directory containing the logger files (argument ``directory`` to the :class:`constructor<.Concatenator>`). If the concatenation is a continuation from a previous concatenation, this method also joins the old and new concatenations.
+
+        The two written files are named *<var_name>_input.csv* and *<var_name>_output.csv*. The *<var_name>* refers to the name of the variable to which the concatenation is applied (e.g. 'level' or 'temp'). The former contains the :attr:`.var` DataFrame with metadata added as a :class:`~pandas.MultiIndex` - see :meth:`.merge_info`, while the latter contains the final concatenation (in column ``concat``) and some other data. The splines used for interpolation can be found in column ``interp``, while the detected outliers are labelled in ``outliers`` with the column index in :attr:`.var` (or the *<var_name>_input.csv* file) of the time series where the outlier occurs.
+
+        """
         if hasattr(self, 'old_var'):
             old_files = self.old_var.columns.get_level_values('file')
             new_files = self.var.columns.get_level_values('file')

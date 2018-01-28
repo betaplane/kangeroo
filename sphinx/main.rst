@@ -38,7 +38,7 @@ Usage
 Installation
 ^^^^^^^^^^^^
 
-For a variety of reasons, I'm not providing a setup.py script - most importantly the fact that the required dependencies are not easily installed together from pip. So I recommend just downloading the code from the `release page <https://github.com/betaplane/kangeroo/releases>`_, unpacking it in some working directory and using it as a normal local python package without 'installing' it. That way, the code can also be easily modified.
+For a variety of reasons, I'm not providing a setup.py script - most importantly the fact that the required dependencies are not easily installed together from pip. So I recommend just downloading the code from the `release page <https://github.com/betaplane/kangeroo/releases>`_, unpacking it in some working directory and using it as a normal local python package without 'installing' it. That way, the code can also be easily modified. (For the examples to work exactly as written down, rename the donwloaded and unpacked archive to 'kangeroo' and work in a directory one level above it.)
 
 The required dependencies are most easily installed via `conda <https://conda.io/docs/user-guide/index.html>`_::
 
@@ -218,9 +218,9 @@ Tests
 
 A basic test on the AK-4-1 data is included and can be run by executing::
 
-    python -m unittest kangeroo/tests.py
+    python -m unittest kangeroo.tests
 
-It does however require an example directory as a tar.gz archive, including the '/out' subdirectory, which I'm not including in the git repo.
+It does however require the test data file *test_level_4_1.tar.gz*, which I'm not including in the git repo; this file needs to be placed inside the 'kangeroo' folder.
 
 Other remarks
 -------------

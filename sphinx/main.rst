@@ -5,7 +5,7 @@ The concatenation follows the following steps:
 
 #. The csv files are read in and placed in a :class:`~pandas.DataFrame` attached to the :class:`.Reader` as :attr:`~.Reader.data`. This is handled by :mod:`kangeroo.core`, while everything that follows below is contained in :mod:`kangeroo.concat`.
 
-#. The individual time series (columns in the :class:`~pandas.DataFrame` :attr:`~.Reader.data`) are sorted into 'long' and 'short' ones based on a length threshold, in :meth:`~.Concatenator.organize_time`. The default threshold is 100 days. Only 'short' time series will later be adjusted by a potential additive offset.
+#. The individual time series (columns in the :class:`~pandas.DataFrame` :attr:`~.Reader.data`) are sorted into 'long' and 'short' ones based on a length threshold, in :meth:`~.Reader.organize_time`. The default threshold is 100 days. Only 'short' time series will later be adjusted by a potential additive offset.
 
 #. A distance measure is computed in time which corresponds to the temporal gap or overlap between any two timeseries. An overlap has negative distance. The :func:`Dijkstra <scipy.sparse.csgraph.dijkstra>` algorithm is then used to find the path through this graph which prefers the largest overlaps.
 

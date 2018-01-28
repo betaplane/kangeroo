@@ -169,21 +169,6 @@ resets the computed offsets for files ``5`` and ``17`` ('Bridge2_K65' and 'AK4_0
 
    Example of the smoothing spline interpolation resulting from using the argument ``use_spline`` in method :meth:`~.Concatenator.concat`.
 
-.. todo::
-
-    * ingest old 'offset' file to continue previously performed concatenation with new files
-    * threshold value for offsets (set to zero if too small)?
-    * simplify / streamline ``core`` DataFrame routines in light of current algorithm
-        * mostly done
-        * add setup.py
-        * figure out github pages
-    * linear segment as offset instead of constant
-    * experiment with different smoothing parameters for the spline
-    * use of previously removed dataseries (dispensables) fohave had theirr the offset confidence calculation
-    * allow for skipping of non-necessary files after the first round
-        * will require spline and/or overlap routins that don't recompute outliers **and** reset the :attr:`starts` / :attr:`ends`
-    * check other possibilities for confidence of offsets, e.g.
-        * :math:`R^2` / generalized OLS ideas
 
 Other remarks
 -------------

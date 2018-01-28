@@ -1,3 +1,21 @@
+"""
+.. todo::
+
+    * ingest old 'offset' file to continue previously performed concatenation with new files
+    * threshold value for offsets (set to zero if too small)?
+    * simplify / streamline ``core`` DataFrame routines in light of current algorithm
+        * mostly done
+        * add setup.py
+        * figure out github pages
+    * linear segment as offset instead of constant
+    * experiment with different smoothing parameters for the spline
+    * use of previously removed dataseries (dispensables) fohave had theirr the offset confidence calculation
+    * allow for skipping of non-necessary files after the first round
+        * will require spline and/or overlap routins that don't recompute outliers **and** reset the :attr:`starts` / :attr:`ends`
+    * check other possibilities for confidence of offsets, e.g.
+        * :math:`R^2` / generalized OLS ideas
+
+"""
 import pandas as pd
 import numpy as np
 from scipy.sparse import csgraph
@@ -35,7 +53,7 @@ class Concatenator(Reader):
         :returns: 
         :rtype: 
 
-        """
+  i      """
         super().__init__(directory, copy, variable, resample)
 
         end_points = self.var.apply(self.get_start_end)
@@ -203,6 +221,7 @@ class Concatenator(Reader):
     def spline(self, i, plot=False, smooth = 10., eps=2, pad=20):
         m = int(np.ceil((self.starts[i+1] + self.ends[i]) / 2))
         j = np.arange(m - pad, m + pad + 1)
+        jdx = self.out.index[j]
 
         c = self.var.iloc[j, i:i+2].sum(1, skipna=True) # this is a hack, only works if there is no overlap of course!
         sp = Bspline(j)
@@ -222,10 +241,10 @@ class Concatenator(Reader):
         else:
             o = c.index.symmetric_difference(c.index[labels])
             sp.fit(np.ma.MaskedArray(c, ~labels), smooth, m - j[0])
-            self.out.ix[j, 'extra'] = sp.spline
-            self.out.ix[j, 'resid'] = sp.resid
+            self.out.loc[jdx, 'extra'] = sp.spline
+            self.out.loc[jdx, 'resid'] = sp.resid
             if len(o) > 0:
-                row, col = np.where(self.var.ix[o, i:i+2].notnull())
+                row, col = np.where(self.var.loc[o].iloc[:, i:i+2].notnull())
                 if len(row) > 0: # could be a gap
                     self.out.loc[o[row], 'outliers'] = i + col
                 self.starts[i+1] = self.var.index.get_loc(max(o)) + 1
@@ -317,16 +336,16 @@ class Concatenator(Reader):
                     offs = self.offsets.loc['corr_offs', c.columns].item()
                 else:
                     self.offsets.loc['corr_offs', c.columns] = 0.
-            self.out.ix[a: b+1, 'concat'] = self.var.iloc[a: b+1, i] + offs
+            self.out.loc[self.out.index[a: b+1], 'concat'] = self.var.iloc[a: b+1, i] + offs
 
         for i, (b, c) in enumerate(zip(self.starts[1:], self.ends[:-1])):
             if b - c > 1:
                 m = int(np.ceil((b + c) / 2))
-                j = np.arange(m - pad_spline, m + pad_spline + 1)
-                mask = self.out.ix[j, 'outliers'].notnull()
-                sp = Bspline(j)
-                sp.fit(np.ma.MaskedArray(self.out.ix[j, 'concat'], mask), smooth_spline)
-                self.out.ix[j, 'interp'] = sp.spline
+                j = self.out.index[m - pad_spline: m + pad_spline + 1]
+                mask = self.out.loc[j, 'outliers'].notnull()
+                sp = Bspline(j.values.astype('datetime64[m]').astype(float))
+                sp.fit(np.ma.MaskedArray(self.out.loc[j, 'concat'], mask), smooth_spline)
+                self.out.loc[j, 'interp'] = sp.spline
                 self.out['concat'] = self.out['concat'].where(self.out['concat'].notnull(), self.out['interp'])
 
         if len(use_spline) == 0 and 'odr_slope' in self.offsets.index:

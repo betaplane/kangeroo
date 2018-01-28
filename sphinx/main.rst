@@ -50,6 +50,8 @@ An environment can be create at the same time as installing the required package
 
     conda create -n <environment_name> python=3 numpy scipy statsmodels scikit-learn matplotlib pandas=0.20
 
+I recommend adding ``ipython`` to the list of packages to install. Furthermore, to use the :mod:`kangeroo.database` module, ``sqlalchemy`` is needed.
+
 First invocation
 ^^^^^^^^^^^^^^^^
 

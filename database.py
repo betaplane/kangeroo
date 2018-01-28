@@ -1,12 +1,5 @@
-"""
-Remember
-========
-* :meth:`DB.get_fields` now should work with `mult` factor from `fields` table
-
-"""
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine, text
 
 class DB(object):
     """
@@ -15,7 +8,7 @@ class DB(object):
     """
 
     def __init__(self, uri='postgresql://arno@/AKR'):
-        from sqlalchemy import create_engine
+        from sqlalchemy import create_engine, text
         self.engine = create_engine(uri)
         """:class:`sqlalchemy.engine.Engine` connectable"""
 

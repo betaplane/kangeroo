@@ -3,7 +3,6 @@ import numpy as np
 from warnings import warn
 from glob import glob
 import os, re
-from .plot import Plots, get_time_ranges
 
 
 class FileReadError(Exception):

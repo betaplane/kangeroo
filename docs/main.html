@@ -101,6 +101,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#the-plot">The plot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#the-computed-offsets-and-related-statistical-quantities">The computed offsets and related statistical quantities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#the-final-concatenation">The final concatenation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#appending-to-an-existing-concatenation">Appending to an existing concatenation</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#other-remarks">Other remarks</a></li>
@@ -309,46 +310,29 @@
 </pre></div>
 </div>
 <p>resets the computed offsets for files <code class="docutils literal"><span class="pre">5</span></code> and <code class="docutils literal"><span class="pre">17</span></code> (‘Bridge2_K65’ and ‘AK4_08_22_2014_levelBridge2downstream’) to zero and performs a spline interpolation across the <code class="docutils literal"><span class="pre">short</span></code> series block <code class="docutils literal"><span class="pre">3</span></code> (containing only ‘Levelogger_LL1_temp_Bridge2_2011’).</p>
+<p>Finally, a call to <code class="xref py py-meth docutils literal"><span class="pre">to_csv()</span></code> saves the generated concatenation in a folder ‘out’ underneath the directory with which <a class="reference internal" href="API.html#kangeroo.concat.Concatenator" title="kangeroo.concat.Concatenator"><code class="xref py py-class docutils literal"><span class="pre">Concatenator</span></code></a> has been called:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cc</span><span class="o">.</span><span class="n">to_csv</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Two files are saved, <em>&lt;var&gt;_input.csv</em> and <em>&lt;var&gt;_output.csv</em>, where <em>&lt;var&gt;</em> is replaced with the name of the variable which has been concatenated. The file ending in <em>input.csv</em> corresponds to the <a class="reference external" href="http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v0.22.0)"><code class="xref py py-class docutils literal"><span class="pre">DataFrame</span></code></a> constructed from the input time series, with all discared series removed and resampled according to the arguments passed to the <a class="reference internal" href="API.html#kangeroo.concat.Concatenator" title="kangeroo.concat.Concatenator"><code class="xref py py-class docutils literal"><span class="pre">Concatenator</span></code></a> constructor (default is 30 minutes). In other words, it is a .csv serialization of the <code class="xref py py-attr docutils literal"><span class="pre">var</span></code> attribute. It contains 6 header rows with metadata information pertaining to each of the input time series (in columns):</p>
+<ul class="simple">
+<li><code class="docutils literal"><span class="pre">file</span></code> - the filename corresponding to each columns</li>
+<li><code class="docutils literal"><span class="pre">length</span></code> - the classification into <code class="docutils literal"><span class="pre">long</span></code> and <code class="docutils literal"><span class="pre">short</span></code></li>
+<li><code class="docutils literal"><span class="pre">time_adj</span></code> - the time adjustment performed on the read-in timestamps (in hours)</li>
+<li><code class="docutils literal"><span class="pre">start</span></code> - the starting index (i.e. after discarding outliers at the beginning)</li>
+<li><code class="docutils literal"><span class="pre">end</span></code> - the final index (excluding discarded outliers at the end)</li>
+<li><code class="docutils literal"><span class="pre">corr_offs</span></code> - the additive offset applied to the values of the time series before the concatenation</li>
+</ul>
+<p>The file ending in <em>output.csv</em> contains the actual concatenated series in the column <code class="docutils literal"><span class="pre">concat</span></code> as well as some auxiliary data points resulting from the procedure. Of interest may be the columns <code class="docutils literal"><span class="pre">interp</span></code>, which has the spline fits (at the respective time stamps) which were used to interpolate missing / discarded values, and <code class="docutils literal"><span class="pre">outliers</span></code> which marks outliers by the index corresponding to the column index, in the <em>input.csv</em> file / the <code class="xref py py-attr docutils literal"><span class="pre">var</span></code> attribute, of the original time series which contained the respective data point.</p>
 <div class="figure" id="id3">
 <img alt="_images/Figure_3.png" src="_images/Figure_3.png" />
 <p class="caption"><span class="caption-text">Example of the smoothing spline interpolation resulting from using the argument <code class="docutils literal"><span class="pre">use_spline</span></code> in method <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.concat" title="kangeroo.concat.Concatenator.concat"><code class="xref py py-meth docutils literal"><span class="pre">concat()</span></code></a>.</span></p>
 </div>
-<div class="admonition-todo admonition" id="index-0">
-<p class="first admonition-title">Todo</p>
-<ul class="last simple">
-<li>ingest old ‘offset’ file to continue previously performed concatenation with new files</li>
-<li>threshold value for offsets (set to zero if too small)?</li>
-<li><dl class="first docutils">
-<dt>simplify / streamline <code class="docutils literal"><span class="pre">core</span></code> DataFrame routines in light of current algorithm</dt>
-<dd><ul class="first last">
-<li>mostly done</li>
-<li>add setup.py</li>
-<li>figure out github pages</li>
-</ul>
-</dd>
-</dl>
-</li>
-<li>linear segment as offset instead of constant</li>
-<li>experiment with different smoothing parameters for the spline</li>
-<li>use of previously removed dataseries (dispensables) fohave had theirr the offset confidence calculation</li>
-<li><dl class="first docutils">
-<dt>allow for skipping of non-necessary files after the first round</dt>
-<dd><ul class="first last">
-<li>will require spline and/or overlap routins that don’t recompute outliers <strong>and</strong> reset the <code class="xref py py-attr docutils literal"><span class="pre">starts</span></code> / <code class="xref py py-attr docutils literal"><span class="pre">ends</span></code></li>
-</ul>
-</dd>
-</dl>
-</li>
-<li><dl class="first docutils">
-<dt>check other possibilities for confidence of offsets, e.g.</dt>
-<dd><ul class="first last">
-<li><span class="math">\(R^2\)</span> / generalized OLS ideas</li>
-</ul>
-</dd>
-</dl>
-</li>
-</ul>
 </div>
+<div class="section" id="appending-to-an-existing-concatenation">
+<h2>Appending to an existing concatenation<a class="headerlink" href="#appending-to-an-existing-concatenation" title="Permalink to this headline">¶</a></h2>
+<p>Appending to an existing concatenation is fairly automatic. If an ‘out’ folder exists underneath the logger file directory, the output files are read in and only those logger files not already contained in the concatenation (and with a later start date) are ingested. The concatenation procedure starts from the last <code class="docutils literal"><span class="pre">long</span></code> time series so that offsets can be computed properly. All the methods operate only on those files starting with the last <code class="docutils literal"><span class="pre">long</span></code> series, including <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.plot" title="kangeroo.concat.Concatenator.plot"><code class="xref py py-meth docutils literal"><span class="pre">plot()</span></code></a>. However, when <code class="xref py py-meth docutils literal"><span class="pre">to_csv()</span></code> is called, the series and DataFrames are fused appropriately before writing out the output files.</p>
+<p>If there are no ‘new’ files present, the internal data of the <a class="reference internal" href="API.html#kangeroo.concat.Concatenator" title="kangeroo.concat.Concatenator"><code class="xref py py-class docutils literal"><span class="pre">Concatenator</span></code></a> are popluated in such a way that calling <a class="reference internal" href="API.html#kangeroo.concat.Concatenator.plot" title="kangeroo.concat.Concatenator.plot"><code class="xref py py-meth docutils literal"><span class="pre">plot()</span></code></a> produces a plot identical to the one produced when the original concatenation was performed.</p>
 </div>
 </div>
 <div class="section" id="other-remarks">
